@@ -91,9 +91,9 @@ class PipelineConfig:
         Returns:
             Configured PipelineConfig instance honoring current environment settings.
         """
-        api_key = _get_env_str(["GROQ_API_KEY", "RELAY_GROQ_API_KEY"], "")
+        api_key = _get_env_str(["GROQ_API_KEY", "PASSAGEWORKS_GROQ_API_KEY"], "")
         base_url = _get_env_str(
-            ["GROQ_BASE_URL", "RELAY_BASE_URL", "STANDIN_URL"], "http://127.0.0.1:8000/v1"
+            ["GROQ_BASE_URL", "PASSAGEWORKS_BASE_URL", "STANDIN_URL"], "http://127.0.0.1:8000/v1"
         )
         if not base_url or base_url.lower() == "none":
             resolved_base_url = None
@@ -101,12 +101,8 @@ class PipelineConfig:
             resolved_base_url = base_url
 
         return cls(
-            primary_model=_get_env_str(
-                ["PASSAGEWORKS_PRIMARY_MODEL", "RELAY_PRIMARY_MODEL"], "qwen/qwen3.8-27b"
-            ),
-            classifier_model=_get_env_str(
-                ["PASSAGEWORKS_CLASSIFIER_MODEL", "RELAY_CLASSIFIER_MODEL"], "qwen/qwen3.8-27b"
-            ),
+            primary_model=_get_env_str(["PASSAGEWORKS_PRIMARY_MODEL"], "qwen/qwen3.8-27b"),
+            classifier_model=_get_env_str(["PASSAGEWORKS_CLASSIFIER_MODEL"], "qwen/qwen3.8-27b"),
             groq_api_key=api_key or None,
             groq_base_url=resolved_base_url,
             llm_timeout_seconds=_get_env_float(

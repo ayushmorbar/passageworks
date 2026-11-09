@@ -12,7 +12,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from relay.models import PassageChunk, RetrievalResult
+from passageworks.models import PassageChunk, RetrievalResult
 
 
 def tokenize(text: str) -> list[str]:

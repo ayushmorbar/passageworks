@@ -40,7 +40,7 @@ Evidence is strictly confined to three specific arXiv research papers:
 ## 2. Directory Layout
 
 ```
-relay/
+passageworks/
 ├── .env.example             # Complete environment configuration template
 ├── pyproject.toml           # Locked package dependencies and build specification
 ├── AGENTS.md                # Agent rules, source boundaries, and command specs
@@ -48,7 +48,7 @@ relay/
 ├── REPORT.md                # Final 2-page synthesis report with Tables 1, 2a, 2b, 3
 │
 ├── src/
-│   ├── relay/               # Core Q&A pipeline package
+│   ├── passageworks/        # Core Q&A pipeline package
 │   │   ├── budget.py        # TokenBudgetTracker (rolling 60s TPM/RPM, daily quota)
 │   │   ├── classify.py      # Step 1: Scope gatekeeper and branch gating
 │   │   ├── config.py        # PipelineConfig dataclass with environment resolution
@@ -61,7 +61,7 @@ relay/
 │   │   ├── retrieve.py      # In-process Okapi BM25 engine & RetrieverTool
 │   │   └── verify.py        # Step 4: Closed-loop fact verification judge
 │   │
-│   └── relay_standin/       # Calibrated standalone FastAPI mock service
+│   └── passageworks_standin/ # Calibrated standalone FastAPI mock service
 │       ├── config.py        # StandinConfig (calibrated TTFT, jitter, token interval)
 │       └── server.py        # Streaming SSE completion routes & control endpoints
 │
@@ -102,7 +102,8 @@ relay/
 
 ```powershell
 # Clone and enter directory
-cd d:\Builds\relay
+git clone https://github.com/ayushmorbar/passageworks.git
+cd passageworks
 
 # Install dependencies with uv (or pip)
 uv sync
@@ -148,7 +149,7 @@ pytest tests/test_csv_schema.py -v
 
 Launch the standalone calibrated simulation service:
 ```powershell
-uvicorn relay_standin.server:app --host 127.0.0.1 --port 8000
+uvicorn passageworks_standin.server:app --host 127.0.0.1 --port 8000
 ```
 Health check and control endpoints:
 - `GET http://127.0.0.1:8000/health` — Service status and active in-flight request count.
@@ -174,6 +175,6 @@ python analysis/tables.py
 
 ## 7. Reports & Deliverables
 
-- Detailed synthesis, trace breakdowns, and findings: [`REPORT.md`](file:///d:/Builds/relay/REPORT.md)
-- Complete raw telemetry data: [`results/results.csv`](file:///d:/Builds/relay/results/results.csv)
-- Generated benchmark tables: [`results/generated_tables.md`](file:///d:/Builds/relay/results/generated_tables.md)
+- Detailed synthesis, trace breakdowns, and findings: [`REPORT.md`](REPORT.md)
+- Complete raw telemetry data: [`results/results.csv`](results/results.csv)
+- Generated benchmark tables: [`results/generated_tables.md`](results/generated_tables.md)

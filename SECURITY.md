@@ -25,6 +25,6 @@ We will acknowledge receipt within 48 hours and provide a remediation timeline.
 ## Credential & Secret Protection Policy
 
 1. **Zero Secret Commits:** API keys (such as `GROQ_API_KEY`) must never be committed to Git. The repository's `.gitignore` explicitly excludes `.env*` files (except the template `.env.example`).
-2. **Offline-by-Default CI:** All automated GitHub Actions and local unit/integration tests run without requiring real cloud API credentials. CI tests execute against an in-memory transport or local Stand-in server (`relay_standin`).
+2. **Offline-by-Default CI:** All automated GitHub Actions and local unit/integration tests run without requiring real cloud API credentials. CI tests execute against an in-memory transport or local Stand-in server (`passageworks_standin`).
 3. **Prompt & Evidence Sanitization:** Retrieved paper text is treated strictly as evidence data, never as executable code or administrative instructions.
 4. **Rate Limit Defense:** Client-side token budgeting and bounded queue admission protect downstream accounts from runaway loops, quota exhaustion, and denial-of-wallet scenarios.

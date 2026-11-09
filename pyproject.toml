@@ -27,7 +27,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/relay", "src/relay_standin"]
+packages = ["src/passageworks", "src/passageworks_standin"]
 
 [tool.ruff]
 line-length = 100

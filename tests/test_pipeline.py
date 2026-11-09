@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from relay.budget import TokenBudgetTracker
-from relay.config import PipelineConfig
-from relay.groq_client import LLMCallResult
-from relay.pipeline import PassageworksPipeline
-from relay.queue import AdmissionController
-from relay.retrieve import RetrieverTool
+from passageworks.budget import TokenBudgetTracker
+from passageworks.config import PipelineConfig
+from passageworks.groq_client import LLMCallResult
+from passageworks.pipeline import PassageworksPipeline
+from passageworks.queue import AdmissionController
+from passageworks.retrieve import RetrieverTool
 
 
 class MockLLMClient:

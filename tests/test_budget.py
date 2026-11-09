@@ -1,6 +1,6 @@
 """Unit tests for token and rate budget tracking."""
 
-from relay.budget import TokenBudgetTracker
+from passageworks.budget import TokenBudgetTracker
 
 
 def test_budget_admission_nominal():

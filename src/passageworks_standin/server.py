@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from relay_standin.config import StandinConfig
+from passageworks_standin.config import StandinConfig
 
 app = FastAPI(title="Passageworks Stand-in Model Service")
 config = StandinConfig()

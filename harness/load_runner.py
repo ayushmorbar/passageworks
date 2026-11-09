@@ -20,12 +20,12 @@ from typing import Any
 import httpx
 import uvicorn
 
-from relay.budget import TokenBudgetTracker
-from relay.groq_client import GroqClientWrapper
-from relay.models import PipelineResult
-from relay.pipeline import PassageworksPipeline
-from relay.queue import AdmissionController
-from relay.retrieve import RetrieverTool
+from passageworks.budget import TokenBudgetTracker
+from passageworks.groq_client import GroqClientWrapper
+from passageworks.models import PipelineResult
+from passageworks.pipeline import PassageworksPipeline
+from passageworks.queue import AdmissionController
+from passageworks.retrieve import RetrieverTool
 
 
 def load_questions(
@@ -340,7 +340,7 @@ async def execute_all_scenarios(
 
         if not server_active:
             print(f"[INFO] Launching embedded Stand-in server on {standin_host}:{standin_port}...")
-            from relay_standin.server import app
+            from passageworks_standin.server import app
 
             cfg = uvicorn.Config(app=app, host=standin_host, port=standin_port, log_level="warning")
             srv = uvicorn.Server(cfg)

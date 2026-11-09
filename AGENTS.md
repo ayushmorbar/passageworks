@@ -43,5 +43,5 @@ ruff format --check .
 python -m pytest tests/test_csv_schema.py
 
 # Run Stand-in server locally
-uvicorn relay_standin.server:app --port 8000
+uvicorn passageworks_standin.server:app --port 8000
 ```

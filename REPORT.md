@@ -37,7 +37,7 @@ I calibrated Passageworks against the live Groq Cloud API in November 2026 using
 - **Latency on Groq LPU:** Median time-to-first-token was 232.9ms; total completion time averaged 255.0ms (~330 tokens/sec).
 
 ### How the Stand-in Behaves and Calibration
-To evaluate burst and overload traffic without exhausting my real daily quota, I wrote a standalone FastAPI stand-in service (`relay_standin.server:app`) running on an independent event loop. It mirrors Groq's streaming SSE protocol (`/v1/chat/completions`) and was calibrated directly from real measurements:
+To evaluate burst and overload traffic without exhausting my real daily quota, I wrote a standalone FastAPI stand-in service (`passageworks_standin.server:app`) running on an independent event loop. It mirrors Groq's streaming SSE protocol (`/v1/chat/completions`) and was calibrated directly from real measurements:
 - **Latency & Jitter:** Base TTFT of $210\text{ms} \pm 45\text{ms}$ random jitter, followed by token streaming at $3.0\text{ms}$ per token.
 - **Load Degradation:** Latency increases by a factor of $1.0 + 0.15 \times (\text{active requests} - 1)$ to simulate queuing slowdowns under concurrent load.
 - **Sliding-Window Rate Limits:** Tracks sliding 60-second request and token windows. When limits are exceeded, it returns `HTTP 429` with `retry-after` and `x-ratelimit-*` headers matching Groq's live response format.

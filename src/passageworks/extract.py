@@ -15,7 +15,7 @@ from typing import Any
 
 from pypdf import PdfReader
 
-from relay.models import PaperMetadata, PassageChunk
+from passageworks.models import PaperMetadata, PassageChunk
 
 PAPERS_INFO: list[PaperMetadata] = [
     PaperMetadata(

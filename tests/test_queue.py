@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from relay.queue import AdmissionController, QueueFullError, RequestTimeoutError
+from passageworks.queue import AdmissionController, QueueFullError, RequestTimeoutError
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from relay.models import Citation
+from passageworks.models import Citation
 
 VERIFIER_PROMPT: str = """You are the Fact Verification Auditor for Passageworks.
 Your job is to strictly verify whether the drafted answer is 100% supported by the retrieved paper excerpts.

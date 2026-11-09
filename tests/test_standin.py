@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from relay_standin.server import app
+from passageworks_standin.server import app
 
 
 @pytest.fixture(autouse=True)

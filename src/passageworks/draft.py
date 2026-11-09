@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from relay.models import Citation, PassageChunk
+from passageworks.models import Citation, PassageChunk
 
 DRAFT_SYSTEM_PROMPT: str = """You are Passageworks, a precise, paper-grounded technical research assistant.
 You answer engineering questions strictly and solely using the provided paper excerpts.

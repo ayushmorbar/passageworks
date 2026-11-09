@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import time
 
-from relay.budget import TokenBudgetTracker
-from relay.classify import CLASSIFIER_PROMPT, parse_classification_response
-from relay.config import DEFAULT_CONFIG, PipelineConfig
-from relay.draft import DRAFT_SYSTEM_PROMPT, extract_citations, format_evidence_context
-from relay.groq_client import GroqClientWrapper
-from relay.models import PipelineResult, PipelineStepEvent
-from relay.queue import AdmissionController, QueueFullError, RequestTimeoutError
-from relay.retrieve import RetrieverTool
-from relay.verify import VERIFIER_PROMPT, parse_verification_response
+from passageworks.budget import TokenBudgetTracker
+from passageworks.classify import CLASSIFIER_PROMPT, parse_classification_response
+from passageworks.config import DEFAULT_CONFIG, PipelineConfig
+from passageworks.draft import DRAFT_SYSTEM_PROMPT, extract_citations, format_evidence_context
+from passageworks.groq_client import GroqClientWrapper
+from passageworks.models import PipelineResult, PipelineStepEvent
+from passageworks.queue import AdmissionController, QueueFullError, RequestTimeoutError
+from passageworks.retrieve import RetrieverTool
+from passageworks.verify import VERIFIER_PROMPT, parse_verification_response
 
 
 class PassageworksPipeline:
