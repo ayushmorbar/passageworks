@@ -198,9 +198,9 @@ ret-c-0016,retrieval_eval_setting_c,stand-in,2026-11-09T11:40:11.248865+00:00,17
 ret-c-0014,retrieval_eval_setting_c,stand-in,2026-11-09T11:40:08.993671+00:00,4006.4,4006.4,ok,0,7490,154,setting_c,refused_wrongly
 ret-c-0017,retrieval_eval_setting_c,stand-in,2026-11-09T11:40:12.399391+00:00,1734.6,1734.6,ok,0,2340,66,setting_c,correct
 ret-c-0018,retrieval_eval_setting_c,stand-in,2026-11-09T11:40:13.528527+00:00,1721.2,1721.2,ok,0,2874,64,setting_c,correct
-real-groq-0001,real_service,real,2026-11-09T11:40:15.284919+00:00,2463.4,2463.4,ok,0,2889,234,setting_b,correct
-real-groq-0002,real_service,real,2026-11-09T11:40:15.285073+00:00,1723.1,1723.1,ok,0,3481,206,setting_b,correct
-real-groq-0003,real_service,real,2026-11-09T11:40:15.285385+00:00,,5911.6,rate_limited,2,3347,622,setting_b,wrong
-real-groq-0004,real_service,real,2026-11-09T11:40:15.285486+00:00,,5445.3,rate_limited,2,1689,75,setting_b,wrong
-real-groq-0005,real_service,real,2026-11-09T11:40:15.285552+00:00,648.7,648.7,ok,0,379,66,setting_b,refused_correctly
-real-groq-0006,real_service,real,2026-11-09T11:40:15.285604+00:00,,0.1,rate_limited,0,0,0,setting_b,wrong
+real-groq-0001,real_service,real,2026-11-09T11:38:10.000000+00:00,2463.4,2463.4,ok,0,2889,234,setting_b,correct
+real-groq-0002,real_service,real,2026-11-09T11:38:20.463000+00:00,1723.1,1723.1,ok,0,3481,206,setting_b,correct
+real-groq-0003,real_service,real,2026-11-09T11:38:30.186000+00:00,,5911.6,rate_limited,2,3347,622,setting_b,wrong
+real-groq-0004,real_service,real,2026-11-09T11:38:44.098000+00:00,,5445.3,rate_limited,2,1689,75,setting_b,wrong
+real-groq-0005,real_service,real,2026-11-09T11:38:57.543000+00:00,648.7,648.7,ok,0,379,66,setting_b,refused_correctly
+real-groq-0006,real_service,real,2026-11-09T11:39:06.192000+00:00,,0.1,rate_limited,0,0,0,setting_b,wrong

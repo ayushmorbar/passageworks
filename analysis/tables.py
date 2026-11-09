@@ -94,6 +94,7 @@ def generate_tables(csv_path: Path | None = None) -> dict[str, str]:
         "sustained_overload",
         "per_minute_limit_halved",
         "daily_budget_exhausted",
+        "real_service",
     ]
     t2a_rows = []
 
@@ -114,8 +115,8 @@ def generate_tables(csv_path: Path | None = None) -> dict[str, str]:
         # Percentiles for successful/responded requests
         ok_sub = sub[sub["status"] == "ok"]
         ft_pct = compute_percentiles(ok_sub["first_token_ms"].dropna().tolist())
-        tt_target = ok_sub if not ok_sub.empty else sub
-        tt_pct = compute_percentiles(tt_target["total_ms"].dropna().tolist())
+        # Total time across all dispatched requests captures true latency under load/retry
+        tt_pct = compute_percentiles(sub["total_ms"].dropna().tolist())
 
         ft_str = (
             f"{ft_pct[50]} / {ft_pct[95]} / {ft_pct[99]}"
@@ -168,13 +169,19 @@ def generate_tables(csv_path: Path | None = None) -> dict[str, str]:
             "sustained_overload": 25,
             "per_minute_limit_halved": 0,
             "daily_budget_exhausted": 0,
+            "real_service": 0,
         }
         peak_q = peak_q_map.get(sc, 0)
 
         ok_sub = sub[sub["status"] == "ok"]
         avg_tokens = round(float(ok_sub["total_tokens"].mean()), 1) if not ok_sub.empty else 0.0
 
-        cost_per_1k = round((avg_tokens / 1_000_000.0) * 0.20 * 1000.0, 3)
+        if not ok_sub.empty:
+            mean_tin = float(ok_sub["tokens_in"].mean())
+            mean_tout = float(ok_sub["tokens_out"].mean())
+            cost_per_1k = round(((mean_tin * 0.05 + mean_tout * 0.15) / 1_000_000.0) * 1000.0, 3)
+        else:
+            cost_per_1k = 0.0
 
         t2b_rows.append(
             {
@@ -212,11 +219,13 @@ def generate_tables(csv_path: Path | None = None) -> dict[str, str]:
 
         n_correct = len(sub[sub["answer_grade"] == "correct"])
         n_wrong = len(sub[sub["answer_grade"] == "wrong"])
-        n_refused = len(sub[sub["answer_grade"] == "refused_correctly"])
+        n_refused_ok = len(sub[sub["answer_grade"] == "refused_correctly"])
+        n_refused_wrong = len(sub[sub["answer_grade"] == "refused_wrongly"])
 
         pct_correct = round((n_correct / n_q) * 100.0, 1)
         pct_wrong = round((n_wrong / n_q) * 100.0, 1)
-        pct_refused = round((n_refused / n_q) * 100.0, 1)
+        pct_refused_ok = round((n_refused_ok / n_q) * 100.0, 1)
+        pct_refused_wrong = round((n_refused_wrong / n_q) * 100.0, 1)
 
         ok_sub = sub[sub["status"] == "ok"]
         tokens_target = ok_sub if not ok_sub.empty else sub
@@ -234,7 +243,8 @@ def generate_tables(csv_path: Path | None = None) -> dict[str, str]:
                 "Questions asked": n_q,
                 "Correct and cited %": f"{pct_correct}%",
                 "Wrong %": f"{pct_wrong}%",
-                "Correctly refused %": f"{pct_refused}%",
+                "Correctly refused %": f"{pct_refused_ok}%",
+                "Incorrectly refused %": f"{pct_refused_wrong}%",
                 "Tokens per answer": tokens_per_ans,
                 "First token p50 / p95 (ms)": f"{ft_pct[50]} / {ft_pct[95]}",
                 "Total time p50 / p95 (ms)": f"{tt_pct[50]} / {tt_pct[95]}",

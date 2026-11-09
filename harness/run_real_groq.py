@@ -144,6 +144,7 @@ async def run_real_evaluation() -> list[dict[str, Any]]:
         trace_records.append(
             {
                 "request_id": req_id,
+                "start_time": start_iso,
                 "question": q_text,
                 "answer": res.answer,
                 "citations": [c.raw_citation for c in res.citations],
@@ -153,6 +154,7 @@ async def run_real_evaluation() -> list[dict[str, Any]]:
                 "tokens_in": res.tokens_in,
                 "tokens_out": res.tokens_out,
                 "retries": res.retries,
+                "retrieval_setting": setting,
                 "step_events": [
                     {
                         "step_name": e.step_name,

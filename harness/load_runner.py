@@ -450,7 +450,7 @@ async def execute_all_scenarios(
                                 "request_id": t["request_id"],
                                 "scenario": "real_service",
                                 "source": "real",
-                                "start_time": datetime.now(UTC).isoformat(),
+                                "start_time": t.get("start_time", datetime.now(UTC).isoformat()),
                                 "first_token_ms": f"{t['first_token_ms']:.1f}"
                                 if t.get("first_token_ms") is not None
                                 else "",
@@ -459,7 +459,7 @@ async def execute_all_scenarios(
                                 "retries": t.get("retries", 0),
                                 "tokens_in": t["tokens_in"],
                                 "tokens_out": t["tokens_out"],
-                                "retrieval_setting": "setting_b",
+                                "retrieval_setting": t.get("retrieval_setting", "setting_b"),
                                 "answer_grade": "correct"
                                 if t["status"] == "ok" and t.get("citations")
                                 else (
