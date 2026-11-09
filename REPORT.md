@@ -2,7 +2,7 @@
 
 Passageworks is an asynchronous question-answering pipeline grounded strictly in three arXiv papers: *Attention Is All You Need* (arXiv:1706.03762v7), *Moshi* (arXiv:2410.00037v1), and *Dynamic Chunking* (arXiv:2507.07955v2). It evaluates system behavior under bursty traffic, provider quotas, and service failures.
 
-The pipeline executes four discrete stages: `CLASSIFY` (zero-cost prompt routing to filter out-of-scope queries or identify target papers), `RETRIEVE` (in-memory BM25 chunk search), `DRAFT` (initial synthesis with explicit citations), and `VERIFY` (independent LLM audit of claim-passage alignment).
+The pipeline executes four discrete stages: `CLASSIFY` (a lightweight classifier call routes out-of-scope queries before retrieval and drafting), `RETRIEVE` (in-memory BM25 chunk search), `DRAFT` (initial synthesis with explicit citations), and `VERIFY` (independent LLM audit of claim-passage alignment).
 
 The single architectural decision that shaped the system most was buffered verification: withholding all output until an independent LLM validation step confirms exact claim-passage alignment against source citations `[Paper, Section, Page]`. The pipeline buffers output until verification passes. This prevents the release of unverified drafts, but does not guarantee factual correctness.
 
@@ -28,7 +28,7 @@ To parameterize the pipeline, I probed the live Groq API (`qwen/qwen3.8-27b`) on
 The Stand-in is a local FastAPI service (`passageworks_standin`) mimicking Groq's `/v1/chat/completions`:
 - **Calibration Procedure:** Calibrated from 5 controlled baseline probes against live Groq endpoints (`qwen/qwen3.8-27b`) measuring TTFT (median $178.5\text{ ms}$), streaming token cadence ($\sim 65$ tokens/sec via SSE), concurrency degradation, and exact HTTP response header semantics.
 - **A Number We Could Not Have Guessed Without Running It:** Groq's sub-second token replenishment slice interval: the `x-ratelimit-reset-tokens` header reported fractional credit reset times between $210\text{ ms}$ and $630\text{ ms}$ rather than whole-second discrete buckets, while 429 error payloads disclosed exact token balances down to single tokens (`Limit 7000, Used 6754, Requested 1834. Please try again in 13.611428571s`).
-- **Load-Dependent Slowdown:** Employs an active-concurrency multiplier: each concurrent request beyond 4 adds $12\%$ latency jitter, reproducing LPU memory bus and queue contention.
+- **Load-Dependent Slowdown:** Adds load-dependent latency to approximate observed degradation (each concurrent request beyond 4 adds $12\%$ jitter); it does not reproduce the provider’s internal hardware or scheduling behavior.
 - **Differences from Real Service:** The Stand-in emits deterministic text rather than executing full LLM inference, cannot simulate GPU memory bandwidth contention or hardware cache misses, and replenishes token buckets on discrete tick intervals rather than continuous streaming.
 
 ---
@@ -37,30 +37,30 @@ The Stand-in is a local FastAPI service (`passageworks_standin`) mimicking Groq'
 
 ### Table 2a: Latency, one row per load scenario
 
-| Scenario | Real or stand-in | Requests sent | Duration (s) | Offered rate (per min) | First token p50 / p95 / p99 (ms) | Total time p50 / p95 / p99 (ms) |
+| Scenario | Source | Requests | Duration (s) | Offered rate/min | TTFT p50/p95/p99 (ms) | Total p50/p95/p99 (ms) |
 |---|---|---|---|---|---|---|
-| steady | stand-in | 25 | 24.1 | 62.3 | 1637.7 / 1931.0 / 2015.1 | 10257.7 / 20458.7 / 21434.3 |
-| burst | stand-in | 35 | 14.2 | 147.8 | 1527.3 / 1714.2 / 1725.9 | 0.1 / 1565.8 / 1703.9 |
-| sustained_overload | stand-in | 45 | 14.7 | 183.9 | 1798.0 / 2302.8 / 2341.5 | 0.1 / 1814.1 / 2266.1 |
-| per_minute_limit_halved | stand-in | 25 | 14.4 | 104.0 | 1603.4 / 1615.9 / 1617.0 | 0.1 / 1602.0 / 1614.0 |
-| daily_budget_exhausted | stand-in | 15 | 7.3 | 122.5 | not measured | 7.9 / 378.2 / 1049.4 |
+| steady | stand-in | 25 | 23.9 | 62.8 | 1566.5 / 1854.3 / 1928.1 | 9763.2 / 20354.0 / 20957.5 |
+| burst | stand-in | 35 | 12.8 | 163.7 | 1664.1 / 1830.0 / 1846.0 | 0.1 / 1699.1 / 1822.8 |
+| sustained_overload | stand-in | 45 | 14.7 | 183.9 | 1681.3 / 2294.8 / 2363.2 | 0.1 / 1686.9 / 2229.7 |
+| per_minute_limit_halved | stand-in | 25 | 14.4 | 104.4 | 1676.5 / 1702.9 / 1705.2 | 0.1 / 1673.7 / 1698.8 |
+| daily_budget_exhausted | stand-in | 15 | 7.6 | 118.9 | not measured | 8.3 / 394.6 / 1112.3 |
 | real_service | real | 6 | 56.2 | 6.4 | 1723.1 / 2389.4 / 2448.6 | 2093.2 / 5795.0 / 5888.3 |
 
-> **Accounting Note on Latency:** First-token percentiles describe successful completions (`status == 'ok'`). Total-time percentiles are computed across all dispatched requests, accurately capturing instantaneous load-shedding rejections ($0.1\text{ ms}$) alongside queued and completed requests. For successful completions alone, burst Total Time p50 is $1,527.3\text{ ms}$, sustained overload Total Time p50 is $1,798.0\text{ ms}$, and halved limit Total Time p50 is $1,603.4\text{ ms}$. For `daily_budget_exhausted`, zero requests succeeded, so percentiles describe all 15 rate-limited rejection latencies. For `real_service`, total-time percentiles describe all six dispatched requests, capturing the impact of provider 429 lockouts.
+> **Accounting Note on Latency:** TTFT = time to first user-visible token. First-token percentiles describe successful completions (`status == 'ok'`). Total-time percentiles are computed across all dispatched requests, accurately capturing instantaneous load-shedding rejections ($0.1\text{ ms}$) alongside queued and completed requests. For successful completions alone, burst Total Time p50 is $1,664.1\text{ ms}$, sustained overload Total Time p50 is $1,681.3\text{ ms}$, and halved limit is $1,676.5\text{ ms}$. For `daily_budget_exhausted`, zero requests succeeded, so percentiles describe all 15 rate-limited rejection latencies. For `real_service`, total-time percentiles describe all six dispatched requests, capturing the impact of provider 429 lockouts.
 
 ### Table 2b: Outcomes, same rows
 
 | Scenario | Succeeded % | Rate-limited % | Timed out or given up % | Retries per request | Peak queue length | Tokens per answer | Cost per 1,000 answers |
 |---|---|---|---|---|---|---|---|
 | steady | 32.0% | 68.0% | 0.0% | 1.36 | 3 | 1998.4 | $0.105 |
-| burst | 14.3% | 85.7% | 0.0% | 0.00 | 18 | 2076.4 | $0.109 |
+| burst | 17.1% | 82.9% | 0.0% | 0.00 | 18 | 2148.7 | $0.113 |
 | sustained_overload | 13.3% | 86.7% | 0.0% | 0.00 | 25 | 2148.7 | $0.113 |
 | per_minute_limit_halved | 12.0% | 88.0% | 0.0% | 0.00 | 0 | 2473.3 | $0.130 |
 | daily_budget_exhausted | 0.0% | 100.0% | 0.0% | 1.00 | 0 | 0.0 | $0.000 |
 | real_service | 50.0% | 50.0% | 0.0% | 0.67 | 0 | 2418.3 | $0.138 |
 
 ### Real-Service Quality Breakdown
-Among the six real-service requests in Table 2b, three completed successfully (50.0%): two answered with validated citations (`real-groq-0001`, `0002`) and one correctly refused an out-of-scope question (`real-groq-0005`). The other three were marked `wrong` by the evaluation harness because provider rate limits aborted execution before an answer could be verified (`real-groq-0003` and `0004` hit 429 ITPM exhaustion during revision/verification, while `real-groq-0006` was intercepted at admission at 7,255/8,000 active TPM). No hallucinated answers were delivered; unverified drafts were withheld.
+No incomplete draft was released in the recorded real-service run. The three `wrong` outcomes were quota-related non-completions, not factual answer errors. Of the three real-service requests that completed, two were correct (`real-groq-0001`, `0002`) and one was a correct refusal (`real-groq-0005`). The other three did not produce a complete answer because of quota limits (`real-groq-0003` and `0004` hit 429 ITPM exhaustion during revision/verification; `real-groq-0006` was intercepted at admission at 7,255/8,000 active TPM).
 
 ---
 
@@ -86,7 +86,7 @@ Analysis of real Groq execution for `real-groq-0001` (*"What is the formula for 
 - **Per-day limit:** Token usage accumulates against the 500,000 daily budget. Once the ceiling is reached, the client tracker transitions to an immediate rejection state until 00:00 UTC.
 
 ### Who is delayed, who is dropped, who gets a weaker answer, and why
-- **Who is delayed:** In `steady`, requests queue behind the concurrency limiter (`max_concurrency=4`), waiting up to $20.4\text{ s}$ (p95 total latency $20,458.7\text{ ms}$ vs. $1,931.0\text{ ms}$ TTFT). In `burst`, queued requests wait until the admission queue reaches its cap ($18$).
+- **Who is delayed:** In `steady`, requests queue behind the concurrency limiter (`max_concurrency=4`), waiting up to $20.4\text{ s}$ (p95 total latency $20,354.0\text{ ms}$ vs. $1,854.3\text{ ms}$ TTFT). In `burst`, queued requests wait until the admission queue reaches its cap ($18$).
 - **Who is dropped:** In `sustained_overload` and `burst`, requests arriving after the admission queue is full or when rate limits are exhausted are dropped immediately ($0.1\text{ ms}$).
 - **Who gets a weaker answer:** Nobody receives a weaker or degraded answer. Passageworks enforces a strict invariant: responses are either fully verified with exact citations `[Paper, Section, Page]`, or refused cleanly. Nobody receives an unverified draft or hallucinated fallback.
 
@@ -96,11 +96,11 @@ Analysis of real Groq execution for `real-groq-0001` (*"What is the formula for 
 
 ### Table 3: Retrieval settings
 
-| Setting (piece size, pieces fetched, re-rank yes or no) | Questions asked | Correct and cited % | Wrong % | Correctly refused % | Incorrectly refused % | Tokens per answer | First token p50 / p95 (ms) | Total time p50 / p95 (ms) |
+| Setting | Q | Correct+cited % | Wrong % | Correct refusal % | Incorrect refusal % | Tokens/answer | TTFT p50/p95 (ms) | Total p50/p95 (ms) |
 |---|---|---|---|---|---|---|---|---|
-| Setting A: 250 words, 5 fetched, re-rank no | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 3176.8 | 1603.9 / 4018.5 | 1603.9 / 4018.5 |
-| Setting B: 250 words, 3 fetched, re-rank no | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 2171.7 | 1678.8 / 3857.6 | 1678.8 / 3857.6 |
-| Setting C: 250 words, 5 fetched, re-rank yes | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 3162.4 | 1701.7 / 3903.3 | 1701.7 / 3903.3 |
+| Setting A: 250 words, 5 fetched, re-rank no | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 3176.8 | 1631.1 / 3910.4 | 1631.1 / 3910.4 |
+| Setting B: 250 words, 3 fetched, re-rank no | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 2171.7 | 1598.8 / 3932.0 | 1598.8 / 3932.0 |
+| Setting C: 250 words, 5 fetched, re-rank yes | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 3162.4 | 1634.0 / 3908.4 | 1634.0 / 3908.4 |
 
 > **Evaluation Disclosure:** Table 3 measures pipeline and retrieval mechanics using the stand-in. It does not establish real-model answer quality across the three retrieval settings. All 60 question-level records are published in [`results/eval_records.csv`](results/eval_records.csv) and [`results/eval_records.jsonl`](results/eval_records.jsonl).
 
@@ -135,7 +135,7 @@ When the daily token budget (500,000 tokens) is exhausted (simulated at 3:00 PM)
 ```
 Request declined: Daily token budget exhausted. Quota resets at 00:00 UTC.
 ```
-In the benchmark scenario (`daily_budget_exhausted`), 15 requests were dispatched. The first request consumed 1,331 tokens and retried before the budget state was established (taking $1,217.2\text{ ms}$). After the budget was exhausted, subsequent requests were rejected locally in 3.2–18.6 ms (median: $7.9\text{ ms}$, p95: $378.2\text{ ms}$). Waiting users receive an immediate failure response rather than stalling on upstream network timeouts.
+In the benchmark scenario (`daily_budget_exhausted`), 15 requests were dispatched. The first request consumed 1,331 tokens and retried before the budget state was established (taking $1,217.2\text{ ms}$). After the budget was exhausted, subsequent requests were rejected locally in 3.4–19.2 ms (median: $8.3\text{ ms}$, p95: $394.6\text{ ms}$). Waiting users receive an immediate failure response rather than stalling on upstream network timeouts.
 
 ---
 
