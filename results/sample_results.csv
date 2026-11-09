@@ -1,0 +1,4 @@
+request_id,scenario,source,start_time,first_token_ms,total_ms,status,retries,tokens_in,tokens_out,retrieval_setting,answer_grade
+req-sample-001,steady,stand-in,2026-11-09T12:00:00Z,230.5,1420.0,ok,0,512,120,setting_a,correct
+req-sample-002,burst,stand-in,2026-11-09T12:00:05Z,310.2,1980.4,ok,1,640,150,setting_b,refused_correctly
+req-sample-003,sustained_overload,stand-in,2026-11-09T12:00:10Z,,,rate_limited,2,0,0,setting_a,wrong

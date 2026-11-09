@@ -1,0 +1,71 @@
+"""Step 1: Query classification and scope gating."""
+
+import json
+from dataclasses import dataclass
+from typing import Optional
+
+
+CLASSIFIER_PROMPT = """You are the scope gatekeeper for Passageworks, a research Q&A assistant restricted exclusively to three arXiv papers:
+1. "Attention Is All You Need" (arXiv:1706.03762v7) — Transformer architecture, self-attention, multi-head attention, machine translation.
+2. "Moshi: a speech-text foundation model for real-time dialogue" (arXiv:2410.00037v1) — Real-time full-duplex speech-text foundation model, Mimi neural audio codec, Kyutai.
+3. "Dynamic Chunking for End-to-End Hierarchical Sequence Modeling" (arXiv:2507.07955v2) — Dynamic chunking, hierarchical sequence modeling, linear RNNs/Transformers.
+
+Given the user query, determine whether it can be answered using ONLY these three papers.
+- If the question asks about unrelated topics (e.g. general knowledge, other architectures like Mamba/GPT-4, cooking, coding arbitrary tools), it must be REJECTED.
+- If the question is relevant to one or more of these three papers, APPROVE it.
+
+Respond in strict JSON with keys:
+- "is_in_scope": true / false
+- "relevant_paper": "attention" | "moshi" | "dynamic_chunking" | "multiple" | "none"
+- "reason": brief 1-sentence justification
+"""
+
+
+@dataclass
+class ClassificationDecision:
+    is_in_scope: bool
+    relevant_paper: str
+    reason: str
+    refusal_message: Optional[str] = None
+
+
+def parse_classification_response(raw_text: str) -> ClassificationDecision:
+    """Parse JSON classification response from LLM."""
+    try:
+        # Strip potential markdown fences
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+        cleaned = cleaned.strip()
+
+        data = json.loads(cleaned)
+        in_scope = bool(data.get("is_in_scope", False))
+        paper = str(data.get("relevant_paper", "none"))
+        reason = str(data.get("reason", "No reason provided."))
+
+        refusal = None
+        if not in_scope:
+            refusal = (
+                "I cannot answer this question because it is outside the scope of my restricted library. "
+                "I can only answer questions strictly grounded in: "
+                "(1) 'Attention Is All You Need' (arXiv:1706.03762v7), "
+                "(2) 'Moshi' (arXiv:2410.00037v1), and "
+                "(3) 'Dynamic Chunking' (arXiv:2507.07955v2)."
+            )
+
+        return ClassificationDecision(
+            is_in_scope=in_scope,
+            relevant_paper=paper,
+            reason=reason,
+            refusal_message=refusal,
+        )
+    except Exception as exc:
+        # Fail safe on malformed JSON: reject or treat with caution
+        return ClassificationDecision(
+            is_in_scope=False,
+            relevant_paper="none",
+            reason=f"Classification parse error: {exc}",
+            refusal_message="Unable to verify whether question is within the allowed paper library.",
+        )
