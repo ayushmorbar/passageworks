@@ -12,7 +12,6 @@ Output is buffered until verification succeeds to ensure citation integrity unde
 from __future__ import annotations
 
 import time
-from typing import List, Optional
 
 from relay.budget import TokenBudgetTracker
 from relay.classify import CLASSIFIER_PROMPT, parse_classification_response
@@ -40,8 +39,8 @@ class PassageworksPipeline:
         self,
         retriever: RetrieverTool,
         groq_client: GroqClientWrapper,
-        budget: Optional[TokenBudgetTracker] = None,
-        queue: Optional[AdmissionController] = None,
+        budget: TokenBudgetTracker | None = None,
+        queue: AdmissionController | None = None,
         config: PipelineConfig = DEFAULT_CONFIG,
     ) -> None:
         self.retriever = retriever
@@ -75,7 +74,7 @@ class PassageworksPipeline:
             PipelineResult containing generated answer, citations, steps, and telemetry metrics.
         """
         overall_start = time.perf_counter()
-        steps: List[PipelineStepEvent] = []
+        steps: list[PipelineStepEvent] = []
         total_retries = 0
         total_p_tokens = 0
         total_c_tokens = 0

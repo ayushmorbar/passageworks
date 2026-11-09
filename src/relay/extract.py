@@ -10,13 +10,14 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Pattern, Tuple
+from re import Pattern
+from typing import Any
 
 from pypdf import PdfReader
 
 from relay.models import PaperMetadata, PassageChunk
 
-PAPERS_INFO: List[PaperMetadata] = [
+PAPERS_INFO: list[PaperMetadata] = [
     PaperMetadata(
         paper_id="attention",
         title="Attention Is All You Need",
@@ -68,7 +69,7 @@ def clean_text(raw_text: str) -> str:
     return "\n".join(lines)
 
 
-def detect_sections(text: str) -> List[Tuple[str, str]]:
+def detect_sections(text: str) -> list[tuple[str, str]]:
     """Split page text into (section_title, section_text) blocks using regex matching.
 
     Args:
@@ -107,7 +108,7 @@ def chunk_text(
     start_chunk_idx: int = 1,
     target_words: int = 250,
     overlap_words: int = 40,
-) -> Tuple[List[PassageChunk], int]:
+) -> tuple[list[PassageChunk], int]:
     """Split a section of text into overlapping word windows with sequential chunk IDs.
 
     Args:
@@ -160,7 +161,7 @@ def chunk_text(
 
 def extract_all_papers(
     workspace_dir: Path, output_file: Path, report_file: Path
-) -> List[PassageChunk]:
+) -> list[PassageChunk]:
     """Process all library research papers, generating chunks.jsonl and extraction report.
 
     Args:
@@ -171,8 +172,8 @@ def extract_all_papers(
     Returns:
         List of all extracted PassageChunk instances.
     """
-    all_chunks: List[PassageChunk] = []
-    stats: Dict[str, Dict[str, Any]] = {}
+    all_chunks: list[PassageChunk] = []
+    stats: dict[str, dict[str, Any]] = {}
 
     for paper in PAPERS_INFO:
         # Check both workspace root and papers/ subdirectory
@@ -184,7 +185,7 @@ def extract_all_papers(
             continue
 
         reader = PdfReader(str(pdf_path))
-        paper_chunks: List[PassageChunk] = []
+        paper_chunks: list[PassageChunk] = []
         current_section = "Abstract"
         chunk_counter = 1
 

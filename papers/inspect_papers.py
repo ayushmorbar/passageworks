@@ -1,6 +1,7 @@
 """Inspect page count and initial text samples from the three library papers."""
 
 from pathlib import Path
+
 from pypdf import PdfReader
 
 PAPERS = [

@@ -5,7 +5,7 @@ import json
 import random
 import time
 from collections import deque
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -26,10 +26,10 @@ daily_token_count = 0
 
 class ChatCompletionRequest(BaseModel):
     model: str
-    messages: List[Dict[str, Any]]
-    temperature: Optional[float] = 0.0
-    max_tokens: Optional[int] = 800
-    stream: Optional[bool] = False
+    messages: list[dict[str, Any]]
+    temperature: float | None = 0.0
+    max_tokens: int | None = 800
+    stream: bool | None = False
 
 
 def purge_rate_windows(now: float) -> None:
@@ -40,7 +40,7 @@ def purge_rate_windows(now: float) -> None:
         token_window.popleft()
 
 
-def generate_mock_reply(messages: List[Dict[str, Any]]) -> str:
+def generate_mock_reply(messages: list[dict[str, Any]]) -> str:
     """Generate realistic responses based on prompt markers (CLASSIFY, DRAFT, VERIFY)."""
     full_prompt = " ".join(str(m.get("content", "")) for m in messages)
     user_query = str(messages[-1].get("content", "")).lower() if messages else ""
@@ -352,7 +352,7 @@ async def reset_control():
 
 
 @app.post("/control/configure")
-async def update_config(new_cfg: Dict[str, Any]):
+async def update_config(new_cfg: dict[str, Any]):
     """Update runtime stand-in parameters."""
     for k, v in new_cfg.items():
         if hasattr(config, k):

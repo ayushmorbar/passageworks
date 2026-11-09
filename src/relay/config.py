@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 def _get_env_str(keys: list[str], default: str) -> str:
@@ -70,8 +69,8 @@ class PipelineConfig:
 
     primary_model: str = "qwen/qwen3.8-27b"
     classifier_model: str = "qwen/qwen3.8-27b"
-    groq_api_key: Optional[str] = None
-    groq_base_url: Optional[str] = None
+    groq_api_key: str | None = None
+    groq_base_url: str | None = None
     llm_timeout_seconds: float = 15.0
     request_deadline_seconds: float = 25.0
     max_retries: int = 2

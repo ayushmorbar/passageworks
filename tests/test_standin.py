@@ -1,7 +1,8 @@
 """Integration tests for the Stand-in model service."""
 
-import pytest
 import httpx
+import pytest
+
 from relay_standin.server import app
 
 

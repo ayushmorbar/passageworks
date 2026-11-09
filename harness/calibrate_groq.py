@@ -11,13 +11,13 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import groq
 from groq import AsyncGroq
 
 
-def load_env_local(env_path: Optional[Path] = None) -> Dict[str, str]:
+def load_env_local(env_path: Path | None = None) -> dict[str, str]:
     """Parse .env.local or .env for credentials without committing or exposing them.
 
     Args:
@@ -29,9 +29,9 @@ def load_env_local(env_path: Optional[Path] = None) -> Dict[str, str]:
     path = env_path or Path(".env.local")
     if not path.exists():
         path = Path(".env")
-    env_vars: Dict[str, str] = {}
+    env_vars: dict[str, str] = {}
     if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
@@ -84,16 +84,16 @@ async def calibrate(num_samples: int = 5) -> None:
         "Summarize the Mimi neural audio codec used in Moshi in 1 sentence.",
     ]
 
-    telemetry_records: List[Dict[str, Any]] = []
+    telemetry_records: list[dict[str, Any]] = []
 
     for i in range(min(num_samples, len(sample_prompts))):
         prompt = sample_prompts[i]
         print(f"[{i + 1}/{num_samples}] Dispatching: '{prompt[:45]}...'")
 
         t0 = time.perf_counter()
-        first_token_time: Optional[float] = None
-        collected_chunks: List[str] = []
-        captured_headers: Dict[str, str] = {}
+        first_token_time: float | None = None
+        collected_chunks: list[str] = []
+        captured_headers: dict[str, str] = {}
 
         try:
             raw_resp = await client.chat.completions.with_raw_response.create(

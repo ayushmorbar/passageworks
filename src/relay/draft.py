@@ -7,7 +7,6 @@ bracketed inline citations matching the required [Paper, Section, Page] format.
 from __future__ import annotations
 
 import re
-from typing import List
 
 from relay.models import Citation, PassageChunk
 
@@ -24,7 +23,7 @@ CITATION RULES:
 """
 
 
-def format_evidence_context(chunks: List[PassageChunk]) -> str:
+def format_evidence_context(chunks: list[PassageChunk]) -> str:
     """Format a list of retrieved passages into a structured markdown prompt block.
 
     Args:
@@ -47,7 +46,7 @@ def format_evidence_context(chunks: List[PassageChunk]) -> str:
     return "\n".join(context_blocks)
 
 
-def extract_citations(text: str) -> List[Citation]:
+def extract_citations(text: str) -> list[Citation]:
     """Extract structured citation tags from draft text matching [Paper, Section, p.X].
 
     Args:

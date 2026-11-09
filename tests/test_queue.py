@@ -1,7 +1,9 @@
 """Unit tests for concurrency admission queue and timeouts."""
 
 import asyncio
+
 import pytest
+
 from relay.queue import AdmissionController, QueueFullError, RequestTimeoutError
 
 

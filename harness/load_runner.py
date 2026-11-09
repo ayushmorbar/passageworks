@@ -13,9 +13,9 @@ import json
 import os
 import random
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 import uvicorn
@@ -29,8 +29,8 @@ from relay.retrieve import RetrieverTool
 
 
 def load_questions(
-    questions_file: Optional[Path] = None,
-) -> List[Dict[str, Any]]:
+    questions_file: Path | None = None,
+) -> list[dict[str, Any]]:
     """Load authored technical benchmark questions from JSON Lines file.
 
     Args:
@@ -44,14 +44,14 @@ def load_questions(
         raise FileNotFoundError(f"Questions file not found: {path}")
 
     questions = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 questions.append(json.loads(line))
     return questions
 
 
-def grade_answer(q_meta: Dict[str, Any], result: PipelineResult) -> str:
+def grade_answer(q_meta: dict[str, Any], result: PipelineResult) -> str:
     """Determine answer grade category required by evaluation brief.
 
     Categories:
@@ -97,8 +97,8 @@ class LoadScenarioRunner:
         self,
         retriever: RetrieverTool,
         source: str = "stand-in",
-        base_url: Optional[str] = None,
-        output_csv: Optional[Path] = None,
+        base_url: str | None = None,
+        output_csv: Path | None = None,
     ) -> None:
         self.retriever = retriever
         self.source = source
@@ -107,7 +107,7 @@ class LoadScenarioRunner:
         self.control_url = os.getenv("STANDIN_CONTROL_URL", "http://127.0.0.1:8000")
         self.questions = load_questions()
 
-    async def _configure_standin(self, config_params: Dict[str, Any]) -> None:
+    async def _configure_standin(self, config_params: dict[str, Any]) -> None:
         """Call Stand-in control endpoint to adjust limits or latency.
 
         Args:
@@ -127,8 +127,8 @@ class LoadScenarioRunner:
         duration_s: float,
         retrieval_setting: str = "setting_a",
         traffic_pattern: str = "uniform",  # uniform, burst, overload
-        standin_overrides: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        standin_overrides: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Run an open-loop arrival sequence.
 
         Args:
@@ -191,7 +191,7 @@ class LoadScenarioRunner:
         )
 
         # Precompute planned dispatch offsets (open-loop schedule)
-        planned_offsets: List[float] = []
+        planned_offsets: list[float] = []
         if traffic_pattern == "burst":
             for i in range(num_requests):
                 if i < int(num_requests * 0.2):
@@ -213,13 +213,13 @@ class LoadScenarioRunner:
             planned_offsets = [max(0.0, off) for off in planned_offsets]
             planned_offsets.sort()
 
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         active_tasks = []
         start_clock = time.perf_counter()
 
-        async def worker(req_idx: int, q_data: Dict[str, Any]) -> None:
+        async def worker(req_idx: int, q_data: dict[str, Any]) -> None:
             req_id = f"req-{scenario_name[:3]}-{req_idx + 1:04d}"
-            start_iso = datetime.now(timezone.utc).isoformat()
+            start_iso = datetime.now(UTC).isoformat()
             try:
                 res = await pipeline.execute(
                     question=q_data["question"],
@@ -275,7 +275,7 @@ class LoadScenarioRunner:
         print(f"Completed Scenario: {scenario_name}. Recorded {len(records)} requests.")
         return records
 
-    def append_to_csv(self, records: List[Dict[str, Any]]) -> None:
+    def append_to_csv(self, records: list[dict[str, Any]]) -> None:
         """Write execution records to CSV, strictly respecting the required 12-column schema.
 
         Args:
@@ -308,7 +308,7 @@ class LoadScenarioRunner:
 
 async def execute_all_scenarios(
     source: str = "stand-in",
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
 ) -> None:
     """Execute all five mandatory load scenarios and the three retrieval comparison runs.
 
@@ -348,7 +348,7 @@ async def execute_all_scenarios(
             await asyncio.sleep(1.0)
 
     try:
-        all_records: List[Dict[str, Any]] = []
+        all_records: list[dict[str, Any]] = []
 
         # 1. Steady Scenario
         rec1 = await runner.run_scenario(

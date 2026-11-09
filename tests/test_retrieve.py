@@ -1,7 +1,9 @@
 """Unit tests for Passageworks BM25 retrieval engine."""
 
 from pathlib import Path
+
 import pytest
+
 from relay.retrieve import RetrieverTool
 
 

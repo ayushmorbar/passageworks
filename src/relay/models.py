@@ -7,7 +7,7 @@ inline citations, step telemetry events, and pipeline execution results.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -53,12 +53,12 @@ class PassageChunk:
     text: str
     token_estimate: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert chunk instance to a JSON-serializable dictionary."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> PassageChunk:
+    def from_dict(cls, data: dict[str, Any]) -> PassageChunk:
         """Instantiate a PassageChunk from a deserialized dictionary."""
         return cls(**data)
 
@@ -113,7 +113,7 @@ class PipelineStepEvent:
     duration_ms: float
     tokens_in: int = 0
     tokens_out: int = 0
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -143,13 +143,13 @@ class PipelineResult:
     status: str
     answer: str
     is_refusal: bool
-    citations: List[Citation]
-    retrieved_chunks: List[PassageChunk]
-    steps: List[PipelineStepEvent]
-    first_token_ms: Optional[float]
+    citations: list[Citation]
+    retrieved_chunks: list[PassageChunk]
+    steps: list[PipelineStepEvent]
+    first_token_ms: float | None
     total_ms: float
     retries: int
     tokens_in: int
     tokens_out: int
     retrieval_setting: str
-    answer_grade: Optional[str] = None
+    answer_grade: str | None = None

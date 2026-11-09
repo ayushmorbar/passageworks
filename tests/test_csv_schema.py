@@ -32,7 +32,7 @@ def test_results_csv_schema():
 
     assert csv_path.exists(), f"Neither results.csv nor sample_results.csv found at {csv_path}"
 
-    with open(csv_path, mode="r", encoding="utf-8") as f:
+    with open(csv_path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
 

@@ -33,6 +33,10 @@ packages = ["src/relay", "src/relay_standin"]
 line-length = 100
 target-version = "py313"
 
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = [

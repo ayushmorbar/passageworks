@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import List
 
 from relay.models import Citation
 
@@ -43,12 +42,12 @@ class VerificationOutcome:
     """
 
     is_valid: bool
-    unsupported_claims: List[str]
+    unsupported_claims: list[str]
     suggested_revision: str
     has_valid_citations: bool
 
 
-def verify_citation_syntax(citations: List[Citation]) -> bool:
+def verify_citation_syntax(citations: list[Citation]) -> bool:
     """Verify that citations exist and satisfy structural and page boundary checks.
 
     Args:
@@ -67,7 +66,7 @@ def verify_citation_syntax(citations: List[Citation]) -> bool:
     return True
 
 
-def parse_verification_response(raw_text: str, citations: List[Citation]) -> VerificationOutcome:
+def parse_verification_response(raw_text: str, citations: list[Citation]) -> VerificationOutcome:
     """Parse and validate JSON evaluation emitted by the verifier model.
 
     Args:

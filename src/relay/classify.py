@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Optional
 
 CLASSIFIER_PROMPT: str = """You are the scope gatekeeper for Passageworks, a research Q&A assistant restricted exclusively to three arXiv papers:
 1. "Attention Is All You Need" (arXiv:1706.03762v7) — Transformer architecture, self-attention, multi-head attention, machine translation.
@@ -40,7 +39,7 @@ class ClassificationDecision:
     is_in_scope: bool
     relevant_paper: str
     reason: str
-    refusal_message: Optional[str] = None
+    refusal_message: str | None = None
 
 
 def parse_classification_response(raw_text: str) -> ClassificationDecision:

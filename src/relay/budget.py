@@ -9,7 +9,6 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Optional, Tuple
 
 
 @dataclass
@@ -34,8 +33,8 @@ class TokenBudgetTracker:
     total_requests_count: int = 0
 
     # Rolling 60-second windows for per-minute rates: store (timestamp, tokens/count)
-    _minute_tokens: Deque[Tuple[float, int]] = field(default_factory=deque)
-    _minute_requests: Deque[Tuple[float, int]] = field(default_factory=deque)
+    _minute_tokens: deque[tuple[float, int]] = field(default_factory=deque)
+    _minute_requests: deque[tuple[float, int]] = field(default_factory=deque)
 
     def _purge_expired(self, now: float) -> None:
         """Evict items older than 60 seconds from sliding windows.
@@ -49,7 +48,7 @@ class TokenBudgetTracker:
         while self._minute_requests and self._minute_requests[0][0] < cutoff:
             self._minute_requests.popleft()
 
-    def get_current_tpm(self, now: Optional[float] = None) -> int:
+    def get_current_tpm(self, now: float | None = None) -> int:
         """Calculate tokens expended in the trailing 60-second rolling window.
 
         Args:
@@ -63,7 +62,7 @@ class TokenBudgetTracker:
         self._purge_expired(now)
         return sum(item[1] for item in self._minute_tokens)
 
-    def get_current_rpm(self, now: Optional[float] = None) -> int:
+    def get_current_rpm(self, now: float | None = None) -> int:
         """Calculate requests executed in the trailing 60-second rolling window.
 
         Args:
@@ -77,7 +76,7 @@ class TokenBudgetTracker:
         self._purge_expired(now)
         return sum(item[1] for item in self._minute_requests)
 
-    def check_admission(self, estimated_tokens: int = 800) -> Tuple[bool, Optional[str]]:
+    def check_admission(self, estimated_tokens: int = 800) -> tuple[bool, str | None]:
         """Pre-emptively verify whether an incoming request can be admitted without breach.
 
         Args:

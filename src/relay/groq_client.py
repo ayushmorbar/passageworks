@@ -11,7 +11,7 @@ import os
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import groq
 from groq import AsyncGroq
@@ -40,8 +40,8 @@ class LLMCallResult:
     first_token_ms: float
     total_call_ms: float
     retries_used: int
-    headers: Dict[str, str] = field(default_factory=dict)
-    error_message: Optional[str] = None
+    headers: dict[str, str] = field(default_factory=dict)
+    error_message: str | None = None
 
 
 class GroqClientWrapper:
@@ -58,8 +58,8 @@ class GroqClientWrapper:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
         default_timeout: float = 15.0,
         max_retries: int = 2,
         backoff_base: float = 1.0,
@@ -83,7 +83,7 @@ class GroqClientWrapper:
     async def chat_completion(
         self,
         model: str,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         temperature: float = 0.0,
         max_tokens: int = 800,
     ) -> LLMCallResult:
@@ -103,9 +103,9 @@ class GroqClientWrapper:
 
         while retries_attempted <= self.max_retries:
             t0 = time.perf_counter()
-            first_chunk_t: Optional[float] = None
-            collected_text: List[str] = []
-            response_headers: Dict[str, str] = {}
+            first_chunk_t: float | None = None
+            collected_text: list[str] = []
+            response_headers: dict[str, str] = {}
             p_tokens = 0
             c_tokens = 0
 

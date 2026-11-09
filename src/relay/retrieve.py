@@ -11,12 +11,11 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 from relay.models import PassageChunk, RetrievalResult
 
 
-def tokenize(text: str) -> List[str]:
+def tokenize(text: str) -> list[str]:
     """Tokenize input text using alphanumeric boundary matching and lowercasing.
 
     Args:
@@ -37,20 +36,20 @@ class BM25Index:
         b: Document length normalization hyperparameter (default 0.75).
     """
 
-    def __init__(self, chunks: List[PassageChunk], k1: float = 1.5, b: float = 0.75) -> None:
+    def __init__(self, chunks: list[PassageChunk], k1: float = 1.5, b: float = 0.75) -> None:
         self.chunks = chunks
         self.k1 = k1
         self.b = b
         self.corpus_size = len(chunks)
-        self.doc_tokens: List[List[str]] = [tokenize(c.text) for c in chunks]
-        self.doc_lens: List[int] = [len(toks) for toks in self.doc_tokens]
+        self.doc_tokens: list[list[str]] = [tokenize(c.text) for c in chunks]
+        self.doc_lens: list[int] = [len(toks) for toks in self.doc_tokens]
         self.avg_doc_len: float = (
             sum(self.doc_lens) / self.corpus_size if self.corpus_size > 0 else 0.0
         )
 
         # Inverted index and term frequencies per document
-        self.doc_freqs: Dict[str, int] = Counter()
-        self.term_freqs: List[Counter[str]] = []
+        self.doc_freqs: dict[str, int] = Counter()
+        self.term_freqs: list[Counter[str]] = []
 
         for toks in self.doc_tokens:
             tf: Counter[str] = Counter(toks)
@@ -59,11 +58,11 @@ class BM25Index:
                 self.doc_freqs[term] += 1
 
         # Precompute Robertson-Spärck Jones IDF
-        self.idf: Dict[str, float] = {}
+        self.idf: dict[str, float] = {}
         for term, df in self.doc_freqs.items():
             self.idf[term] = math.log((self.corpus_size - df + 0.5) / (df + 0.5) + 1.0)
 
-    def score(self, query_tokens: List[str], doc_idx: int) -> float:
+    def score(self, query_tokens: list[str], doc_idx: int) -> float:
         """Compute the BM25 score for a document given a tokenized query.
 
         Args:
@@ -93,7 +92,7 @@ class BM25Index:
         query: str,
         top_k: int = 5,
         boost_sections: bool = False,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         """Rank passage chunks against a query.
 
         Args:
@@ -108,7 +107,7 @@ class BM25Index:
         if not q_tokens:
             return []
 
-        scores: List[Tuple[int, float]] = []
+        scores: list[tuple[int, float]] = []
         for idx in range(self.corpus_size):
             base_score = self.score(q_tokens, idx)
             if base_score <= 0.0:
@@ -141,9 +140,9 @@ class RetrieverTool:
     """
 
     def __init__(self, chunks_path: Path) -> None:
-        self.chunks: List[PassageChunk] = []
+        self.chunks: list[PassageChunk] = []
         if chunks_path.exists():
-            with open(chunks_path, "r", encoding="utf-8") as f:
+            with open(chunks_path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         self.chunks.append(PassageChunk.from_dict(json.loads(line)))
@@ -154,7 +153,7 @@ class RetrieverTool:
         self,
         query: str,
         setting: str = "setting_a",
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         """Retrieve passages under a specified experimental setting.
 
         Args:

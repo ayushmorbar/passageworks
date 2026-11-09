@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 
 class QueueFullError(Exception):
@@ -62,7 +61,7 @@ class AdmissionController:
         """Return the highest queue length observed since initialization or last reset."""
         return self._peak_queue_length
 
-    async def acquire_slot(self, timeout_override: Optional[float] = None) -> QueueSlot:
+    async def acquire_slot(self, timeout_override: float | None = None) -> QueueSlot:
         """Attempt to join the admission queue and wait for an active execution slot.
 
         Args:
@@ -93,7 +92,7 @@ class AdmissionController:
 
             try:
                 await asyncio.wait_for(self._semaphore.acquire(), timeout=remaining)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 raise RequestTimeoutError(
                     f"Request timed out in queue after {time.perf_counter() - queued_start:.2f}s"
                 )

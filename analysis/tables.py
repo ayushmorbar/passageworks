@@ -8,16 +8,16 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
 
 def compute_percentiles(
-    values: List[float], percentiles: Sequence[int] = (50, 95, 99)
-) -> Dict[int, Optional[float]]:
+    values: list[float], percentiles: Sequence[int] = (50, 95, 99)
+) -> dict[int, float | None]:
     """Compute exact empirical percentiles, returning None for empty sequences.
 
     Args:
@@ -30,7 +30,7 @@ def compute_percentiles(
     clean = [v for v in values if not math.isnan(v)]
     if not clean:
         return {p: None for p in percentiles}
-    res: Dict[int, Optional[float]] = {}
+    res: dict[int, float | None] = {}
     for p in percentiles:
         res[p] = round(float(np.percentile(clean, p)), 1)
     return res
@@ -61,7 +61,7 @@ def df_to_markdown_simple(df: pd.DataFrame) -> str:
     return "\n".join([header_line, separator_line] + rows)
 
 
-def generate_tables(csv_path: Optional[Path] = None) -> Dict[str, str]:
+def generate_tables(csv_path: Path | None = None) -> dict[str, str]:
     """Generate Markdown strings for Tables 2a, 2b, and 3 from execution records.
 
     Args:
