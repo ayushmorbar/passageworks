@@ -1,14 +1,22 @@
-"""PDF extraction and passage chunking for Passageworks restricted library."""
+"""PDF extraction and passage chunking for Passageworks restricted library.
+
+Extracts text from the three authoritative arXiv research papers, detects document sections,
+splits text into overlapping word windows, and generates structured passage chunks with
+immutable [Paper, Section, Page] metadata.
+"""
+
+from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import Any, Dict, List, Pattern, Tuple
+
 from pypdf import PdfReader
 
-from relay.models import PassageChunk, PaperMetadata
+from relay.models import PaperMetadata, PassageChunk
 
-PAPERS_INFO = [
+PAPERS_INFO: List[PaperMetadata] = [
     PaperMetadata(
         paper_id="attention",
         title="Attention Is All You Need",
@@ -32,14 +40,21 @@ PAPERS_INFO = [
     ),
 ]
 
-SECTION_PATTERN = re.compile(
+SECTION_PATTERN: Pattern[str] = re.compile(
     r"^(?:(?:\d+\.?\d*)\s+[A-Z][A-Za-z0-9\s,\-:]{2,60}|Abstract|Introduction|Background|Architecture|Conclusion|Related Work|References|Appendix(?:\s+[A-Z])?)\s*$",
     re.MULTILINE,
 )
 
 
 def clean_text(raw_text: str) -> str:
-    """Normalize whitespace and filter common PDF artifact lines."""
+    """Normalize whitespace and filter common PDF artifact lines.
+
+    Args:
+        raw_text: Extracted page text.
+
+    Returns:
+        Cleaned text string stripped of arXiv running headers and standalone page numbers.
+    """
     lines = []
     for line in raw_text.splitlines():
         trimmed = line.strip()
@@ -54,13 +69,19 @@ def clean_text(raw_text: str) -> str:
 
 
 def detect_sections(text: str) -> List[Tuple[str, str]]:
-    """Split text into (section_title, section_text) blocks."""
+    """Split page text into (section_title, section_text) blocks using regex matching.
+
+    Args:
+        text: Cleaned page text.
+
+    Returns:
+        List of (section_title, section_content) tuples.
+    """
     matches = list(SECTION_PATTERN.finditer(text))
     if not matches:
         return [("General", text)]
 
     blocks = []
-    # Content before first detected section
     first_start = matches[0].start()
     if first_start > 0:
         preamble = text[:first_start].strip()
@@ -87,7 +108,20 @@ def chunk_text(
     target_words: int = 250,
     overlap_words: int = 40,
 ) -> Tuple[List[PassageChunk], int]:
-    """Split a section of text into overlapping word windows."""
+    """Split a section of text into overlapping word windows with sequential chunk IDs.
+
+    Args:
+        paper: PaperMetadata of the containing paper.
+        page_num: 1-indexed document page number.
+        section: Containing section header.
+        text: Text to chunk.
+        start_chunk_idx: Current sequential index counter for this paper.
+        target_words: Target word count per chunk.
+        overlap_words: Overlapping word count between consecutive chunks.
+
+    Returns:
+        Tuple of (list of PassageChunk instances, next sequential chunk index).
+    """
     words = text.split()
     if not words:
         return [], start_chunk_idx
@@ -127,14 +161,26 @@ def chunk_text(
 def extract_all_papers(
     workspace_dir: Path, output_file: Path, report_file: Path
 ) -> List[PassageChunk]:
-    """Process all library papers, generate chunks.jsonl and extraction report."""
+    """Process all library research papers, generating chunks.jsonl and extraction report.
+
+    Args:
+        workspace_dir: Root directory or directory containing PDF documents.
+        output_file: Target path for the output JSON Lines chunk file.
+        report_file: Target path for the markdown extraction summary report.
+
+    Returns:
+        List of all extracted PassageChunk instances.
+    """
     all_chunks: List[PassageChunk] = []
     stats: Dict[str, Dict[str, Any]] = {}
 
     for paper in PAPERS_INFO:
+        # Check both workspace root and papers/ subdirectory
         pdf_path = workspace_dir / paper.filename
         if not pdf_path.exists():
-            print(f"[WARN] Paper file not found: {pdf_path}")
+            pdf_path = workspace_dir / "papers" / paper.filename
+        if not pdf_path.exists():
+            print(f"[WARN] Paper file not found: {paper.filename}")
             continue
 
         reader = PdfReader(str(pdf_path))
@@ -182,7 +228,7 @@ def extract_all_papers(
         f.write(f"Total chunks extracted: **{len(all_chunks)}**\n\n")
         f.write("| Paper | arXiv ID | Pages | Chunks | Words | Est. Tokens |\n")
         f.write("|---|---|---|---|---|---|\n")
-        for pid, s in stats.items():
+        for _pid, s in stats.items():
             f.write(
                 f"| {s['title']} | {s['arxiv_id']} | {s['pages']} | {s['chunks']} | {s['total_words']} | {s['est_tokens']} |\n"
             )
@@ -194,5 +240,5 @@ if __name__ == "__main__":
     ws = Path(".")
     out_jsonl = Path("papers/chunks.jsonl")
     out_md = Path("papers/extraction_report.md")
-    chunks = extract_all_papers(ws, out_jsonl, out_md)
-    print(f"Successfully extracted {len(chunks)} chunks to {out_jsonl}")
+    extracted = extract_all_papers(ws, out_jsonl, out_md)
+    print(f"Successfully extracted {len(extracted)} chunks to {out_jsonl}")

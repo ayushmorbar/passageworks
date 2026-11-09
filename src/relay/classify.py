@@ -1,11 +1,16 @@
-"""Step 1: Query classification and scope gating."""
+"""Step 1: Query classification and scope gatekeeping for Passageworks.
+
+Enforces knowledge boundaries by classifying queries against the three permitted
+research papers, branching to immediate zero-cost refusal for out-of-scope topics.
+"""
+
+from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from typing import Optional
 
-
-CLASSIFIER_PROMPT = """You are the scope gatekeeper for Passageworks, a research Q&A assistant restricted exclusively to three arXiv papers:
+CLASSIFIER_PROMPT: str = """You are the scope gatekeeper for Passageworks, a research Q&A assistant restricted exclusively to three arXiv papers:
 1. "Attention Is All You Need" (arXiv:1706.03762v7) — Transformer architecture, self-attention, multi-head attention, machine translation.
 2. "Moshi: a speech-text foundation model for real-time dialogue" (arXiv:2410.00037v1) — Real-time full-duplex speech-text foundation model, Mimi neural audio codec, Kyutai.
 3. "Dynamic Chunking for End-to-End Hierarchical Sequence Modeling" (arXiv:2507.07955v2) — Dynamic chunking, hierarchical sequence modeling, linear RNNs/Transformers.
@@ -23,6 +28,15 @@ Respond in strict JSON with keys:
 
 @dataclass
 class ClassificationDecision:
+    """Structured decision output from the scope classification step.
+
+    Attributes:
+        is_in_scope: True if query falls within the three-paper knowledge boundary.
+        relevant_paper: Identifies the relevant paper or 'multiple'/'none'.
+        reason: Brief justification produced by the classifier model.
+        refusal_message: Pre-rendered user-facing polite refusal if query is out of scope.
+    """
+
     is_in_scope: bool
     relevant_paper: str
     reason: str
@@ -30,7 +44,14 @@ class ClassificationDecision:
 
 
 def parse_classification_response(raw_text: str) -> ClassificationDecision:
-    """Parse JSON classification response from LLM."""
+    """Parse and validate JSON classification response from the gatekeeper LLM.
+
+    Args:
+        raw_text: Raw string output returned by the classifier model.
+
+    Returns:
+        ClassificationDecision containing the parsed boolean decision and reasoning.
+    """
     try:
         # Strip potential markdown fences
         cleaned = raw_text.strip()

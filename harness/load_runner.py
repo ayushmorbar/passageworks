@@ -1,15 +1,24 @@
-"""Open-loop load harness executing the 5 mandatory scenarios and generating results.csv."""
+"""Open-loop load test runner for Passageworks.
+
+Generates Poisson, burst, and uniform arrival traffic schedules against
+the local Stand-in simulation service or live Groq endpoints, logging
+results strictly adhering to the brief's 12-column results schema.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import csv
 import json
+import os
 import random
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
+import uvicorn
 
 from relay.budget import TokenBudgetTracker
 from relay.groq_client import GroqClientWrapper
@@ -19,61 +28,97 @@ from relay.queue import AdmissionController
 from relay.retrieve import RetrieverTool
 
 
-def load_questions() -> List[Dict[str, Any]]:
-    path = Path("harness/questions.jsonl")
+def load_questions(
+    questions_file: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Load authored technical benchmark questions from JSON Lines file.
+
+    Args:
+        questions_file: Optional path to questions.jsonl file.
+
+    Returns:
+        List of question metadata dictionaries.
+    """
+    path = questions_file or Path(os.getenv("QUESTIONS_FILE", "harness/questions.jsonl"))
+    if not path.exists():
+        raise FileNotFoundError(f"Questions file not found: {path}")
+
     questions = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             if line.strip():
-                questions.append(json.loads(line.strip()))
+                questions.append(json.loads(line))
     return questions
 
 
 def grade_answer(q_meta: Dict[str, Any], result: PipelineResult) -> str:
-    """Determine answer grade category required by brief."""
+    """Determine answer grade category required by evaluation brief.
+
+    Categories:
+        - 'correct': Answerable question answered with valid citations.
+        - 'wrong': Hallucinatory answer, unanswerable answered, or failed call.
+        - 'refused_correctly': Unanswerable question properly declined.
+        - 'refused_wrongly': Answerable question declined in error.
+
+    Args:
+        q_meta: Question metadata dictionary.
+        result: PipelineResult from pipeline execution.
+
+    Returns:
+        One of the four strict grading strings.
+    """
     is_answerable = q_meta.get("is_answerable", True)
 
     if result.status != "ok":
-        # Rate limited or timed out requests did not produce answers
         return "refused_correctly" if not is_answerable else "wrong"
 
     if result.is_refusal:
         return "refused_correctly" if not is_answerable else "refused_wrongly"
 
-    # Not a refusal: if it was unanswerable but answered -> wrong (hallucination)
     if not is_answerable:
         return "wrong"
 
-    # Answerable question: check if citations exist
     if result.citations:
         return "correct"
     return "wrong"
 
 
 class LoadScenarioRunner:
-    """Executes open-loop arrival schedules against Stand-in or Real provider."""
+    """Executes open-loop arrival schedules against Stand-in or Real provider.
+
+    Args:
+        retriever: Initialized RetrieverTool instance.
+        source: Provider identifier ('stand-in' or 'real-service').
+        base_url: API endpoint URL.
+        output_csv: Target CSV path for execution records.
+    """
 
     def __init__(
         self,
         retriever: RetrieverTool,
         source: str = "stand-in",
-        base_url: str = "http://127.0.0.1:8000/v1",
-        output_csv: Path = Path("results/results.csv"),
-    ):
+        base_url: Optional[str] = None,
+        output_csv: Optional[Path] = None,
+    ) -> None:
         self.retriever = retriever
         self.source = source
-        self.base_url = base_url
-        self.output_csv = output_csv
+        self.base_url = base_url or os.getenv("GROQ_BASE_URL", "http://127.0.0.1:8000/v1")
+        self.output_csv = output_csv or Path(os.getenv("RESULTS_CSV", "results/results.csv"))
+        self.control_url = os.getenv("STANDIN_CONTROL_URL", "http://127.0.0.1:8000")
         self.questions = load_questions()
 
     async def _configure_standin(self, config_params: Dict[str, Any]) -> None:
-        """Call Stand-in control endpoint to adjust limits or latency."""
+        """Call Stand-in control endpoint to adjust limits or latency.
+
+        Args:
+            config_params: Dictionary of configuration parameters to update.
+        """
         try:
-            async with httpx.AsyncClient(base_url="http://127.0.0.1:8000", timeout=5.0) as client:
+            async with httpx.AsyncClient(base_url=self.control_url, timeout=5.0) as client:
                 await client.post("/control/reset")
                 await client.post("/control/configure", json=config_params)
         except Exception:
-            pass  # When testing in-memory or real service
+            pass  # When testing against in-memory transport or real service
 
     async def run_scenario(
         self,
@@ -84,7 +129,19 @@ class LoadScenarioRunner:
         traffic_pattern: str = "uniform",  # uniform, burst, overload
         standin_overrides: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        """Run an open-loop arrival sequence."""
+        """Run an open-loop arrival sequence.
+
+        Args:
+            scenario_name: Unique identifier for the benchmark scenario.
+            num_requests: Total number of requests to dispatch.
+            duration_s: Duration in seconds over which requests are dispatched.
+            retrieval_setting: Retrieval setting ('setting_a', 'setting_b', 'setting_c').
+            traffic_pattern: Shape of traffic arrival ('uniform', 'burst', 'overload').
+            standin_overrides: Optional runtime parameters for stand-in control.
+
+        Returns:
+            List of 12-column record dictionaries adhering to results.csv schema.
+        """
         print("\n=======================================================")
         print(f"Starting Scenario: {scenario_name} ({self.source})")
         print(
@@ -95,12 +152,18 @@ class LoadScenarioRunner:
         if self.source == "stand-in":
             await self._configure_standin(standin_overrides or {})
 
-        # Initialize pipeline instance
+        default_timeout = float(os.getenv("PASSAGEWORKS_REQUEST_TIMEOUT_S", "15.0"))
+        max_retries = int(os.getenv("PASSAGEWORKS_MAX_RETRIES", "2"))
+        max_concurrent = int(os.getenv("PASSAGEWORKS_MAX_CONCURRENT", "3"))
+        max_queue = int(os.getenv("PASSAGEWORKS_MAX_QUEUE_DEPTH", "25"))
+        deadline_s = float(os.getenv("PASSAGEWORKS_REQUEST_DEADLINE_S", "25.0"))
+
         groq_client = GroqClientWrapper(
             base_url=self.base_url if self.source == "stand-in" else None,
-            default_timeout=15.0,
-            max_retries=2,
+            default_timeout=default_timeout,
+            max_retries=max_retries,
         )
+
         if scenario_name == "daily_budget_exhausted":
             budget = TokenBudgetTracker(daily_token_limit=1000, tpm_token_limit=7500, rpm_limit=30)
         elif scenario_name == "per_minute_limit_halved":
@@ -115,7 +178,10 @@ class LoadScenarioRunner:
             )
         else:
             budget = TokenBudgetTracker(daily_token_limit=95000, tpm_token_limit=7500, rpm_limit=30)
-        queue = AdmissionController(max_concurrent=3, max_queue=25, deadline_s=25.0)
+
+        queue = AdmissionController(
+            max_concurrent=max_concurrent, max_queue=max_queue, deadline_s=deadline_s
+        )
 
         pipeline = PassageworksPipeline(
             retriever=self.retriever,
@@ -127,19 +193,15 @@ class LoadScenarioRunner:
         # Precompute planned dispatch offsets (open-loop schedule)
         planned_offsets: List[float] = []
         if traffic_pattern == "burst":
-            # Normal rate for first 20%, sudden spike in middle, then decay
             for i in range(num_requests):
                 if i < int(num_requests * 0.2):
                     planned_offsets.append(random.uniform(0.0, duration_s * 0.25))
                 elif i < int(num_requests * 0.7):
-                    planned_offsets.append(
-                        random.uniform(duration_s * 0.25, duration_s * 0.45)
-                    )  # Intense spike
+                    planned_offsets.append(random.uniform(duration_s * 0.25, duration_s * 0.45))
                 else:
                     planned_offsets.append(random.uniform(duration_s * 0.45, duration_s))
             planned_offsets.sort()
         elif traffic_pattern == "overload":
-            # Continuous rapid arrival rate
             interval = duration_s / max(1, num_requests)
             planned_offsets = [i * interval for i in range(num_requests)]
         else:  # uniform/steady
@@ -155,7 +217,7 @@ class LoadScenarioRunner:
         active_tasks = []
         start_clock = time.perf_counter()
 
-        async def worker(req_idx: int, q_data: Dict[str, Any]):
+        async def worker(req_idx: int, q_data: Dict[str, Any]) -> None:
             req_id = f"req-{scenario_name[:3]}-{req_idx + 1:04d}"
             start_iso = datetime.now(timezone.utc).isoformat()
             try:
@@ -199,25 +261,26 @@ class LoadScenarioRunner:
                 }
             records.append(row)
 
-        # Dispatch requests according to open-loop timetable
         for i, planned_offset in enumerate(planned_offsets):
             now_elapsed = time.perf_counter() - start_clock
             delay = planned_offset - now_elapsed
             if delay > 0:
                 await asyncio.sleep(delay)
 
-            q_data = self.questions[i % len(self.questions)]
-            task = asyncio.create_task(worker(i, q_data))
+            q_idx = i % len(self.questions)
+            task = asyncio.create_task(worker(i, self.questions[q_idx]))
             active_tasks.append(task)
 
-        # Wait for all in-flight requests to settle
         await asyncio.gather(*active_tasks, return_exceptions=True)
-
         print(f"Completed Scenario: {scenario_name}. Recorded {len(records)} requests.")
         return records
 
     def append_to_csv(self, records: List[Dict[str, Any]]) -> None:
-        """Append rows to results.csv with correct schema."""
+        """Write execution records to CSV, strictly respecting the required 12-column schema.
+
+        Args:
+            records: List of execution record dictionaries.
+        """
         fieldnames = [
             "request_id",
             "scenario",
@@ -233,9 +296,9 @@ class LoadScenarioRunner:
             "answer_grade",
         ]
         file_exists = self.output_csv.exists() and self.output_csv.stat().st_size > 0
-        self.output_csv.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(self.output_csv, mode="a", newline="", encoding="utf-8") as f:
+        self.output_csv.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.output_csv, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if not file_exists:
                 writer.writeheader()
@@ -243,30 +306,49 @@ class LoadScenarioRunner:
                 writer.writerow(r)
 
 
-async def execute_all_scenarios(source: str = "stand-in"):
-    chunks_path = Path("papers/chunks.jsonl")
+async def execute_all_scenarios(
+    source: str = "stand-in",
+    base_url: Optional[str] = None,
+) -> None:
+    """Execute all five mandatory load scenarios and the three retrieval comparison runs.
+
+    Args:
+        source: Provider source ('stand-in' or 'real-service').
+        base_url: API endpoint URL.
+    """
+    chunks_path = Path(os.getenv("CHUNKS_FILE", "papers/chunks.jsonl"))
     retriever = RetrieverTool(chunks_path)
-    runner = LoadScenarioRunner(retriever=retriever, source=source)
+    runner = LoadScenarioRunner(retriever=retriever, source=source, base_url=base_url)
 
-    # If targeting stand-in, auto-start in-process uvicorn server if not already running on port 8000
     server_task = None
-    if source == "stand-in":
-        try:
-            async with httpx.AsyncClient(timeout=1.0) as test_client:
-                await test_client.get("http://127.0.0.1:8000/docs")
-                print("[INFO] Stand-in server already active on port 8000.")
-        except Exception:
-            import uvicorn
-            from relay_standin.server import app as standin_app
+    standin_port = int(os.getenv("STANDIN_PORT", "8000"))
+    standin_host = os.getenv("STANDIN_HOST", "127.0.0.1")
 
-            print("[INFO] Launching embedded Stand-in server on 127.0.0.1:8000...")
-            cfg = uvicorn.Config(standin_app, host="127.0.0.1", port=8000, log_level="warning")
+    # If running against stand-in, check if server is active; if not, spin up embedded server
+    if source == "stand-in":
+        server_active = False
+        try:
+            async with httpx.AsyncClient(
+                base_url=f"http://{standin_host}:{standin_port}", timeout=1.0
+            ) as client:
+                resp = await client.get("/health")
+                if resp.status_code == 200:
+                    server_active = True
+                    print(f"[INFO] Stand-in server already active on port {standin_port}.")
+        except Exception:
+            pass
+
+        if not server_active:
+            print(f"[INFO] Launching embedded Stand-in server on {standin_host}:{standin_port}...")
+            from relay_standin.server import app
+
+            cfg = uvicorn.Config(app=app, host=standin_host, port=standin_port, log_level="warning")
             srv = uvicorn.Server(cfg)
             server_task = asyncio.create_task(srv.serve())
             await asyncio.sleep(1.0)
 
     try:
-        all_records = []
+        all_records: List[Dict[str, Any]] = []
 
         # 1. Steady Scenario
         rec1 = await runner.run_scenario(
@@ -324,14 +406,14 @@ async def execute_all_scenarios(source: str = "stand-in"):
         for setting in ["setting_a", "setting_b", "setting_c"]:
             rec_ret = await runner.run_scenario(
                 scenario_name=f"retrieval_eval_{setting}",
-                num_requests=18,  # all 18 authored questions
+                num_requests=18,
                 duration_s=12.0,
                 retrieval_setting=setting,
                 traffic_pattern="uniform",
             )
             all_records.extend(rec_ret)
 
-        # Save all to results.csv
+        # Write clean results to CSV
         runner.output_csv.unlink(missing_ok=True)
         runner.append_to_csv(all_records)
         print(

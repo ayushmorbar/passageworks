@@ -1,11 +1,17 @@
-"""Step 3: Answer drafting with strict evidence grounding and inline citations."""
+"""Step 3: Answer drafting with strict evidence grounding and inline citations.
+
+Formats retrieved passage excerpts into structured context prompts and parses
+bracketed inline citations matching the required [Paper, Section, Page] format.
+"""
+
+from __future__ import annotations
 
 import re
 from typing import List
-from relay.models import PassageChunk, Citation
 
+from relay.models import Citation, PassageChunk
 
-DRAFT_SYSTEM_PROMPT = """You are Passageworks, a precise, paper-grounded technical research assistant.
+DRAFT_SYSTEM_PROMPT: str = """You are Passageworks, a precise, paper-grounded technical research assistant.
 You answer engineering questions strictly and solely using the provided paper excerpts.
 
 CITATION RULES:
@@ -19,7 +25,14 @@ CITATION RULES:
 
 
 def format_evidence_context(chunks: List[PassageChunk]) -> str:
-    """Format retrieved passages into a structured prompt block."""
+    """Format a list of retrieved passages into a structured markdown prompt block.
+
+    Args:
+        chunks: List of retrieved PassageChunk instances.
+
+    Returns:
+        Structured string block presenting excerpts with paper, section, and page metadata.
+    """
     context_blocks = []
     for i, c in enumerate(chunks, 1):
         block = (
@@ -35,7 +48,14 @@ def format_evidence_context(chunks: List[PassageChunk]) -> str:
 
 
 def extract_citations(text: str) -> List[Citation]:
-    """Extract citation tags from draft text matching [Paper, Section, p.X]."""
+    """Extract structured citation tags from draft text matching [Paper, Section, p.X].
+
+    Args:
+        text: Synthesized answer string containing bracketed citations.
+
+    Returns:
+        List of parsed Citation dataclass instances.
+    """
     citations = []
     # Pattern: [Paper Name, Section Name, p.12]
     pattern = re.compile(

@@ -1,12 +1,23 @@
-"""Pipeline orchestrator: 4 steps, retrieval tool call, branch gating, and verification loop."""
+"""Pipeline orchestrator for Passageworks.
+
+Implements the mandatory 4-step pipeline:
+1. CLASSIFY: Early scope classification & branch gating (immediate refusal for out-of-scope).
+2. RETRIEVE: BM25 tool call fetching evidence chunks with [Paper, Section, Page] metadata.
+3. DRAFT: Factual synthesis strictly grounded in retrieved evidence with inline citations.
+4. VERIFY: Closed-loop verification judge with bounded feedback revision loop (max 2 iterations).
+
+Output is buffered until verification succeeds to ensure citation integrity under load.
+"""
+
+from __future__ import annotations
 
 import time
-from typing import Optional, List
+from typing import List, Optional
 
 from relay.budget import TokenBudgetTracker
 from relay.classify import CLASSIFIER_PROMPT, parse_classification_response
-from relay.config import PipelineConfig, DEFAULT_CONFIG
-from relay.draft import DRAFT_SYSTEM_PROMPT, format_evidence_context, extract_citations
+from relay.config import DEFAULT_CONFIG, PipelineConfig
+from relay.draft import DRAFT_SYSTEM_PROMPT, extract_citations, format_evidence_context
 from relay.groq_client import GroqClientWrapper
 from relay.models import PipelineResult, PipelineStepEvent
 from relay.queue import AdmissionController, QueueFullError, RequestTimeoutError
@@ -15,7 +26,15 @@ from relay.verify import VERIFIER_PROMPT, parse_verification_response
 
 
 class PassageworksPipeline:
-    """End-to-end 4-step Q&A pipeline with branch gating and bounded revision loop."""
+    """End-to-end 4-step Q&A pipeline with branch gating and bounded revision control.
+
+    Args:
+        retriever: Configured RetrieverTool instance.
+        groq_client: Configured GroqClientWrapper instance.
+        budget: Optional TokenBudgetTracker (defaults to config-governed tracker).
+        queue: Optional AdmissionController (defaults to config-governed queue).
+        config: Central PipelineConfig dataclass instance.
+    """
 
     def __init__(
         self,
@@ -24,16 +43,20 @@ class PassageworksPipeline:
         budget: Optional[TokenBudgetTracker] = None,
         queue: Optional[AdmissionController] = None,
         config: PipelineConfig = DEFAULT_CONFIG,
-    ):
+    ) -> None:
         self.retriever = retriever
         self.client = groq_client
-        self.budget = budget or TokenBudgetTracker()
+        self.config = config
+        self.budget = budget or TokenBudgetTracker(
+            daily_token_limit=config.daily_token_budget,
+            tpm_token_limit=config.tpm_token_budget,
+            rpm_limit=config.rpm_budget,
+        )
         self.queue = queue or AdmissionController(
             max_concurrent=config.max_concurrent_requests,
             max_queue=config.max_queue_depth,
             deadline_s=config.request_deadline_seconds,
         )
-        self.config = config
 
     async def execute(
         self,
@@ -41,14 +64,23 @@ class PassageworksPipeline:
         request_id: str,
         retrieval_setting: str = "setting_a",
     ) -> PipelineResult:
-        """Run the full pipeline for a single user question."""
+        """Run the full 4-stage pipeline for a single user question.
+
+        Args:
+            question: Natural language query submitted by user.
+            request_id: Unique identifier for request tracing and audit logs.
+            retrieval_setting: Identifier for retrieval configuration ('setting_a', 'setting_b', 'setting_c').
+
+        Returns:
+            PipelineResult containing generated answer, citations, steps, and telemetry metrics.
+        """
         overall_start = time.perf_counter()
         steps: List[PipelineStepEvent] = []
         total_retries = 0
         total_p_tokens = 0
         total_c_tokens = 0
 
-        # Phase 0: Queue admission and concurrency gating
+        # Phase 0a: Queue admission and concurrency gating
         try:
             _slot = await self.queue.acquire_slot()
         except QueueFullError:
@@ -166,7 +198,7 @@ class PassageworksPipeline:
 
             decision = parse_classification_response(classify_resp.content)
             if not decision.is_in_scope:
-                # Branch: Refuse immediately
+                # Branch: Refuse immediately without calling retrieval or drafting
                 total_ms = (time.perf_counter() - overall_start) * 1000.0
                 self.budget.record_usage(total_p_tokens, total_c_tokens)
                 return PipelineResult(
@@ -205,12 +237,14 @@ class PassageworksPipeline:
             )
 
             if not retrieved_chunks:
+                # Fallback if corpus yielded zero matching passages
                 total_ms = (time.perf_counter() - overall_start) * 1000.0
+                self.budget.record_usage(total_p_tokens, total_c_tokens)
                 return PipelineResult(
                     request_id=request_id,
                     question=question,
                     status="ok",
-                    answer="No relevant passages could be retrieved from the three papers.",
+                    answer="No relevant passages could be located in the permitted paper library.",
                     is_refusal=True,
                     citations=[],
                     retrieved_chunks=[],
@@ -224,7 +258,7 @@ class PassageworksPipeline:
                     answer_grade="refused_correctly",
                 )
 
-            # Step 3: DRAFT (Synthesize cited answer)
+            # Step 3: DRAFT (Evidence Synthesis)
             context_block = format_evidence_context(retrieved_chunks)
             draft_messages = [
                 {"role": "system", "content": DRAFT_SYSTEM_PROMPT},
@@ -309,6 +343,20 @@ class PassageworksPipeline:
                 total_p_tokens += verify_resp.prompt_tokens
                 total_c_tokens += verify_resp.completion_tokens
 
+                steps.append(
+                    PipelineStepEvent(
+                        step_name=f"VERIFY_LOOP_{loop_idx}",
+                        start_time_ms=(step4_start - overall_start) * 1000.0,
+                        duration_ms=step4_ms,
+                        tokens_in=verify_resp.prompt_tokens,
+                        tokens_out=verify_resp.completion_tokens,
+                        details={
+                            "content": verify_resp.content,
+                            "error": verify_resp.error_message,
+                        },
+                    )
+                )
+
                 if verify_resp.error_message:
                     total_ms = (time.perf_counter() - overall_start) * 1000.0
                     is_rl = any(
@@ -334,25 +382,11 @@ class PassageworksPipeline:
                     )
 
                 outcome = parse_verification_response(verify_resp.content, citations)
-                steps.append(
-                    PipelineStepEvent(
-                        step_name=f"VERIFY_LOOP_{loop_idx}",
-                        start_time_ms=(step4_start - overall_start) * 1000.0,
-                        duration_ms=step4_ms,
-                        tokens_in=verify_resp.prompt_tokens,
-                        tokens_out=verify_resp.completion_tokens,
-                        details={
-                            "is_valid": outcome.is_valid,
-                            "unsupported": outcome.unsupported_claims,
-                        },
-                    )
-                )
-
                 if outcome.is_valid:
                     is_verified = True
                     break
 
-                # If invalid and loops remaining, re-draft with feedback
+                # If invalid and loops remaining, re-draft with verifier feedback
                 loop_idx += 1
                 if loop_idx <= max_revisions:
                     redraft_start = time.perf_counter()
@@ -440,7 +474,7 @@ class PassageworksPipeline:
                     answer_grade="refused_correctly",
                 )
 
-            # Release verified answer
+            # Release verified answer (Buffered output released after verification)
             return PipelineResult(
                 request_id=request_id,
                 question=question,
@@ -450,7 +484,7 @@ class PassageworksPipeline:
                 citations=citations,
                 retrieved_chunks=retrieved_chunks,
                 steps=steps,
-                first_token_ms=total_ms,  # Buffered output released after verification
+                first_token_ms=total_ms,
                 total_ms=total_ms,
                 retries=total_retries,
                 tokens_in=total_p_tokens,

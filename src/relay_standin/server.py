@@ -332,6 +332,12 @@ async def chat_completions(req: ChatCompletionRequest):
     )
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint returning server status and active in-flight count."""
+    return {"status": "ok", "active_in_flight": active_in_flight_requests}
+
+
 @app.post("/control/reset")
 async def reset_control():
     """Reset all state counters and restore default config for clean scenario execution."""

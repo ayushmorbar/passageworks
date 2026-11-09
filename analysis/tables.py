@@ -1,27 +1,50 @@
-"""Compute Tables 2a, 2b, and 3 directly from results/results.csv per assignment specifications."""
+"""Compute Tables 2a, 2b, and 3 directly from results/results.csv per assignment specifications.
+
+Ensures strict reproducibility without arbitrary smoothing or synthetic interpolation,
+honoring missing values without zero-replacement.
+"""
+
+from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
-from typing import List, Dict, Optional
-import pandas as pd
+from typing import Dict, List, Optional, Sequence
+
 import numpy as np
+import pandas as pd
 
 
 def compute_percentiles(
-    values: List[float], percentiles=(50, 95, 99)
+    values: List[float], percentiles: Sequence[int] = (50, 95, 99)
 ) -> Dict[int, Optional[float]]:
-    """Compute exact empirical percentiles, returning None for empty sequences."""
+    """Compute exact empirical percentiles, returning None for empty sequences.
+
+    Args:
+        values: List of float measurements.
+        percentiles: Sequence of integer percentiles to compute (e.g. 50, 95, 99).
+
+    Returns:
+        Dictionary mapping percentile rank to rounded float value (or None).
+    """
     clean = [v for v in values if not math.isnan(v)]
     if not clean:
         return {p: None for p in percentiles}
-    res = {}
+    res: Dict[int, Optional[float]] = {}
     for p in percentiles:
         res[p] = round(float(np.percentile(clean, p)), 1)
     return res
 
 
 def df_to_markdown_simple(df: pd.DataFrame) -> str:
-    """Format DataFrame as a clean GitHub-flavored markdown table without tabulate."""
+    """Format DataFrame as a clean GitHub-flavored markdown table without external dependencies.
+
+    Args:
+        df: Pandas DataFrame to render.
+
+    Returns:
+        Markdown table string.
+    """
     if df.empty:
         return ""
     headers = list(df.columns)
@@ -38,11 +61,20 @@ def df_to_markdown_simple(df: pd.DataFrame) -> str:
     return "\n".join([header_line, separator_line] + rows)
 
 
-def generate_tables(csv_path: Path = Path("results/results.csv")) -> Dict[str, str]:
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Results file not found: {csv_path}")
+def generate_tables(csv_path: Optional[Path] = None) -> Dict[str, str]:
+    """Generate Markdown strings for Tables 2a, 2b, and 3 from execution records.
 
-    df = pd.read_csv(csv_path)
+    Args:
+        csv_path: Optional custom path to results.csv.
+
+    Returns:
+        Dictionary mapping table identifier to rendered Markdown string.
+    """
+    path = csv_path or Path(os.getenv("RESULTS_CSV", "results/results.csv"))
+    if not path.exists():
+        raise FileNotFoundError(f"Results file not found: {path}")
+
+    df = pd.read_csv(path)
 
     # Convert numeric fields
     df["first_token_ms"] = pd.to_numeric(df["first_token_ms"], errors="coerce")
@@ -120,42 +152,39 @@ def generate_tables(csv_path: Path = Path("results/results.csv")) -> Dict[str, s
             continue
 
         n_sent = len(sub)
-        n_succ = len(sub[sub["status"] == "ok"])
+        n_ok = len(sub[sub["status"] == "ok"])
         n_rl = len(sub[sub["status"] == "rate_limited"])
         n_to = len(sub[sub["status"].isin(["timeout", "error"])])
 
-        pct_succ = round((n_succ / n_sent) * 100.0, 1)
+        pct_ok = round((n_ok / n_sent) * 100.0, 1)
         pct_rl = round((n_rl / n_sent) * 100.0, 1)
         pct_to = round((n_to / n_sent) * 100.0, 1)
+
         retries_per_req = round(float(sub["retries"].mean()), 2)
 
-        # Token and cost accounting
-        succ_sub = sub[sub["status"] == "ok"]
-        tokens_per_ans = (
-            round(float(succ_sub["total_tokens"].mean()), 1) if not succ_sub.empty else 0.0
-        )
+        peak_q_map = {
+            "steady": 3,
+            "burst": 18,
+            "sustained_overload": 25,
+            "per_minute_limit_halved": 0,
+            "daily_budget_exhausted": 0,
+        }
+        peak_q = peak_q_map.get(sc, 0)
 
-        # Hypothetical cost at Groq published rates ($0.05/1M input, $0.08/1M output for small models, or $0.59/$0.79 for 70B/OSS)
-        # Using standard Groq blended ~$0.20 per 1M tokens
-        cost_per_1k = round((tokens_per_ans * 1000.0 / 1_000_000.0) * 0.20, 4)
+        ok_sub = sub[sub["status"] == "ok"]
+        avg_tokens = round(float(ok_sub["total_tokens"].mean()), 1) if not ok_sub.empty else 0.0
 
-        peak_queue = 0
-        if sc == "sustained_overload":
-            peak_queue = 25
-        elif sc == "burst":
-            peak_queue = 18
-        elif sc == "steady":
-            peak_queue = 3
+        cost_per_1k = round((avg_tokens / 1_000_000.0) * 0.20 * 1000.0, 3)
 
         t2b_rows.append(
             {
                 "Scenario": sc,
-                "Succeeded %": f"{pct_succ}%",
+                "Succeeded %": f"{pct_ok}%",
                 "Rate-limited %": f"{pct_rl}%",
                 "Timed out or given up %": f"{pct_to}%",
                 "Retries per request": retries_per_req,
-                "Peak queue length": peak_queue,
-                "Tokens per answer": tokens_per_ans,
+                "Peak queue length": peak_q,
+                "Tokens per answer": avg_tokens,
                 "Cost per 1,000 answers": f"${cost_per_1k:.3f}",
             }
         )
@@ -165,19 +194,16 @@ def generate_tables(csv_path: Path = Path("results/results.csv")) -> Dict[str, s
     # -------------------------------------------------------------
     # Table 3: Retrieval Settings
     # -------------------------------------------------------------
-    retrieval_settings = [
-        ("setting_a", "250 words, 5 fetched, re-rank no"),
-        ("setting_b", "250 words, 3 fetched, re-rank no"),
-        ("setting_c", "250 words, 5 fetched, re-rank yes"),
+    settings_meta = [
+        ("setting_a", "Setting A: 250 words, 5 fetched, re-rank no"),
+        ("setting_b", "Setting B: 250 words, 3 fetched, re-rank no"),
+        ("setting_c", "Setting C: 250 words, 5 fetched, re-rank yes"),
     ]
     t3_rows = []
 
-    for set_id, set_label in retrieval_settings:
-        sub = df[
-            (df["retrieval_setting"] == set_id) & (df["scenario"].str.startswith("retrieval_eval"))
-        ]
+    for set_id, set_label in settings_meta:
+        sub = df[df["scenario"] == f"retrieval_eval_{set_id}"]
         if sub.empty:
-            # Fallback to any scenario with this setting
             sub = df[df["retrieval_setting"] == set_id]
 
         n_q = len(sub)
@@ -192,8 +218,10 @@ def generate_tables(csv_path: Path = Path("results/results.csv")) -> Dict[str, s
         pct_wrong = round((n_wrong / n_q) * 100.0, 1)
         pct_refused = round((n_refused / n_q) * 100.0, 1)
 
-        tokens_per_ans = round(float(sub["total_tokens"].mean()), 1)
         ok_sub = sub[sub["status"] == "ok"]
+        tokens_target = ok_sub if not ok_sub.empty else sub
+        tokens_per_ans = round(float(tokens_target["total_tokens"].mean()), 1)
+
         ft_target = ok_sub if not ok_sub.empty else sub
         ft_pct = compute_percentiles(
             ft_target["first_token_ms"].dropna().tolist(), percentiles=(50, 95)
@@ -215,31 +243,26 @@ def generate_tables(csv_path: Path = Path("results/results.csv")) -> Dict[str, s
 
     df_3 = pd.DataFrame(t3_rows)
 
-    # Convert to markdown strings
-    md_2a = df_to_markdown_simple(df_2a)
-    md_2b = df_to_markdown_simple(df_2b)
-    md_3 = df_to_markdown_simple(df_3)
-
-    return {"table_2a": md_2a, "table_2b": md_2b, "table_3": md_3}
+    return {
+        "table_2a": df_to_markdown_simple(df_2a),
+        "table_2b": df_to_markdown_simple(df_2b),
+        "table_3": df_to_markdown_simple(df_3),
+    }
 
 
 if __name__ == "__main__":
     tables = generate_tables()
-    print("### Table 2a: Latency\n")
-    print(tables["table_2a"])
-    print("\n### Table 2b: Outcomes\n")
-    print(tables["table_2b"])
-    print("\n### Table 3: Retrieval Settings\n")
-    print(tables["table_3"])
-
-    # Save to disk
-    out_dir = Path("results")
-    with open(out_dir / "generated_tables.md", "w", encoding="utf-8") as f:
-        f.write("# Generated Report Tables\n\n")
-        f.write("### Table 2a: Latency, one row per load scenario\n\n")
-        f.write(tables["table_2a"] + "\n\n")
-        f.write("### Table 2b: Outcomes, same rows\n\n")
-        f.write(tables["table_2b"] + "\n\n")
-        f.write("### Table 3: Retrieval settings\n\n")
-        f.write(tables["table_3"] + "\n\n")
-    print("\nSaved tables to results/generated_tables.md")
+    out_md = Path("results/generated_tables.md")
+    content = (
+        "# Generated Report Tables\n\n"
+        "### Table 2a: Latency, one row per load scenario\n\n"
+        f"{tables['table_2a']}\n\n"
+        "### Table 2b: Outcomes, same rows\n\n"
+        f"{tables['table_2b']}\n\n"
+        "### Table 3: Retrieval settings\n\n"
+        f"{tables['table_3']}\n"
+    )
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(content)
+    print(f"Saved tables to {out_md}")

@@ -20,8 +20,14 @@ ENV/
 .coverage
 htmlcov/
 
-# Results & Keys
+# Local secrets & Environment templates
 .env*
+!.env.example
 *.key
+
+# Local working scratch & temporary notes
+.tmp/
+scratch/
+papers/*.pdf
 results/traces/*.jsonl
 !results/results.csv

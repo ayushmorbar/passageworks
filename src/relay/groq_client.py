@@ -1,11 +1,17 @@
-"""Groq API client wrapper with explicit timeouts, rate-limit header extraction, and retries."""
+"""Groq API client wrapper with explicit timeouts, rate-limit header extraction, and retries.
+
+Ensures SDK retries are disabled (max_retries=0) so that all backoff, jitter,
+telemetry tracking, and fast-fail behavior remain under application-level control.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import os
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import groq
 from groq import AsyncGroq
@@ -13,6 +19,20 @@ from groq import AsyncGroq
 
 @dataclass
 class LLMCallResult:
+    """Instrumented result of an LLM completion call.
+
+    Attributes:
+        content: Raw generated text completion.
+        prompt_tokens: Number of input prompt tokens consumed.
+        completion_tokens: Number of output completion tokens produced.
+        total_tokens: Sum of prompt and completion tokens.
+        first_token_ms: Latency to first streamed token arrival in milliseconds.
+        total_call_ms: Total duration of the network call in milliseconds.
+        retries_used: Number of backoff retries performed during this call.
+        headers: Extracted rate-limit and diagnostic response headers.
+        error_message: Optional error string if the call failed or retries exhausted.
+    """
+
     content: str
     prompt_tokens: int
     completion_tokens: int
@@ -25,7 +45,16 @@ class LLMCallResult:
 
 
 class GroqClientWrapper:
-    """Async client wrapper around Groq / Stand-in service with strict instrumentation."""
+    """Asynchronous client wrapper around Groq Cloud or the Stand-in model service.
+
+    Args:
+        api_key: Optional Groq API key (defaults to GROQ_API_KEY environment variable).
+        base_url: Optional API endpoint base URL (e.g. http://127.0.0.1:8000/v1 for stand-in).
+        default_timeout: Timeout in seconds for individual streaming completion calls.
+        max_retries: Maximum application-level retries on rate limits or transient errors.
+        backoff_base: Base duration in seconds for exponential backoff calculations.
+        fast_fail_lockout_s: Lockout threshold in seconds; if retry-after exceeds this, fail immediately.
+    """
 
     def __init__(
         self,
@@ -34,12 +63,14 @@ class GroqClientWrapper:
         default_timeout: float = 15.0,
         max_retries: int = 2,
         backoff_base: float = 1.0,
-    ):
+        fast_fail_lockout_s: float = 10.0,
+    ) -> None:
         self.api_key = api_key or os.getenv("GROQ_API_KEY", "dummy-key-for-standin")
         self.base_url = base_url
         self.default_timeout = default_timeout
         self.max_retries = max_retries
         self.backoff_base = backoff_base
+        self.fast_fail_lockout_s = fast_fail_lockout_s
 
         # Crucial: set max_retries=0 in SDK so we control retry timing, logging and backoff
         self.client = AsyncGroq(
@@ -52,11 +83,21 @@ class GroqClientWrapper:
     async def chat_completion(
         self,
         model: str,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         temperature: float = 0.0,
         max_tokens: int = 800,
     ) -> LLMCallResult:
-        """Execute a streaming chat completion, recording first-token latency, total latency, usage, and headers."""
+        """Execute a streaming chat completion, recording first-token latency and rate headers.
+
+        Args:
+            model: Model identifier (e.g. 'qwen/qwen3.8-27b').
+            messages: List of message dictionaries with 'role' and 'content'.
+            temperature: Sampling temperature (0.0 for factual reproducibility).
+            max_tokens: Maximum tokens to generate.
+
+        Returns:
+            LLMCallResult containing response content, tokens, latency, and headers.
+        """
         retries_attempted = 0
         last_error = None
 
@@ -69,10 +110,10 @@ class GroqClientWrapper:
             c_tokens = 0
 
             try:
-                # Use with_raw_response to inspect HTTP headers
+                # Use with_raw_response to inspect HTTP response headers directly
                 raw_stream_resp = await self.client.chat.completions.with_raw_response.create(
                     model=model,
-                    messages=messages,
+                    messages=messages,  # type: ignore[arg-type]
                     temperature=temperature,
                     max_tokens=max_tokens,
                     stream=True,
@@ -91,7 +132,7 @@ class GroqClientWrapper:
                             first_chunk_t = time.perf_counter()
                         collected_text.append(delta)
 
-                    # Extract usage metadata from final chunk if present
+                    # Extract usage metadata from final chunk if delivered by stream
                     if hasattr(chunk, "usage") and chunk.usage:
                         p_tokens = chunk.usage.prompt_tokens or p_tokens
                         c_tokens = chunk.usage.completion_tokens or c_tokens
@@ -103,9 +144,9 @@ class GroqClientWrapper:
                 )
                 full_content = "".join(collected_text)
 
-                # Heuristic token fallback if usage chunk was not delivered by stream
+                # Heuristic token fallback if usage chunk was omitted in stream
                 if p_tokens == 0:
-                    input_words = sum(len(m.get("content", "").split()) for m in messages)
+                    input_words = sum(len(str(m.get("content", "")).split()) for m in messages)
                     p_tokens = int(input_words * 1.33)
                 if c_tokens == 0:
                     c_tokens = int(len(full_content.split()) * 1.33)
@@ -134,14 +175,14 @@ class GroqClientWrapper:
                     if ra_hdr:
                         try:
                             hdr_val = float(ra_hdr)
-                            if hdr_val > 10.0:
+                            if hdr_val > self.fast_fail_lockout_s:
                                 # Long lockout (e.g. daily quota exhaustion); do not block, fail immediately
                                 break
                             retry_after_s = max(hdr_val, retry_after_s)
                         except ValueError:
                             pass
                 retry_after_s = min(retry_after_s, 5.0)
-                # Add jitter
+                # Add jitter to desynchronize concurrent clients
                 jitter = random.uniform(0.1, 0.5)
                 await asyncio.sleep(retry_after_s + jitter)
 

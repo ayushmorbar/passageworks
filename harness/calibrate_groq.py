@@ -1,21 +1,37 @@
-"""Conservative calibration harness to measure real Groq service behavior without blowing quota."""
+"""Conservative calibration harness to measure real Groq service behavior without blowing quota.
+
+Executes a small, metered sample against the live Groq Cloud API, extracting rate limit
+headers, TTFT, throughput, and error response envelopes to calibrate the Stand-in service.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 import groq
 from groq import AsyncGroq
 
 
-def load_env_local(env_path: Path = Path(".env.local")) -> Dict[str, str]:
-    """Parse .env.local for credentials without committing or exposing them."""
-    env_vars = {}
-    if env_path.exists():
-        with open(env_path, "r", encoding="utf-8") as f:
+def load_env_local(env_path: Optional[Path] = None) -> Dict[str, str]:
+    """Parse .env.local or .env for credentials without committing or exposing them.
+
+    Args:
+        env_path: Optional custom path to environment file.
+
+    Returns:
+        Dictionary of key-value environment variables.
+    """
+    path = env_path or Path(".env.local")
+    if not path.exists():
+        path = Path(".env")
+    env_vars: Dict[str, str] = {}
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
@@ -24,11 +40,16 @@ def load_env_local(env_path: Path = Path(".env.local")) -> Dict[str, str]:
     return env_vars
 
 
-async def calibrate(num_samples: int = 5):
+async def calibrate(num_samples: int = 5) -> None:
+    """Run empirical calibration against the live Groq Cloud API.
+
+    Args:
+        num_samples: Small number of test completions (default 5) to conserve free quota.
+    """
     env_vars = load_env_local()
     api_key = env_vars.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("[ERROR] GROQ_API_KEY not found in .env.local or environment.")
+        print("[ERROR] GROQ_API_KEY not found in .env.local, .env, or system environment.")
         return
 
     client = AsyncGroq(api_key=api_key, max_retries=0)
@@ -39,43 +60,51 @@ async def calibrate(num_samples: int = 5):
     try:
         models_resp = await client.models.list()
         available_models = [m.id for m in models_resp.data]
-        print(f"Available models count: {len(available_models)}")
-        target_models = [
-            m
-            for m in available_models
-            if any(k in m for k in ["llama-3.3-70b", "llama-3.1-8b", "qwen", "gpt-oss"])
-        ]
-        print(f"Target candidate models found: {target_models}")
-    except Exception as exc:
-        print(f"[WARN] Could not fetch models list: {exc}")
-        available_models = []
+        print(f"Found {len(available_models)} models: {available_models[:6]}...")
+    except Exception as e:
+        print(f"[WARN] Failed to list models: {e}")
+        available_models = ["qwen/qwen3.8-27b", "llama-3.3-70b-versatile"]
 
-    # Qwen 3.8 27B is direct chat completion without internal reasoning preamble
-    calib_model = (
-        "qwen/qwen3.8-27b" if "qwen/qwen3.8-27b" in available_models else "openai/gpt-oss-20b"
-    )
+    # Target active model as of November 2026
+    candidate_model = "qwen/qwen3.8-27b"
+    if candidate_model not in available_models:
+        for m in available_models:
+            if "70b" in m or "llama-3" in m or "qwen" in m:
+                candidate_model = m
+                break
 
-    print(f"\nStep 2: Sending {num_samples} sample calibration requests to '{calib_model}'...")
-    samples: List[Dict[str, Any]] = []
+    print(f"\nStep 2: Calibrating against chosen model: {candidate_model}")
+    print(f"Running {num_samples} conservative test calls with metered delays...")
 
-    prompt = "State one sentence on how multi-head attention functions in transformers."
+    sample_prompts = [
+        "What is the core idea of the Transformer in Attention Is All You Need in 2 sentences?",
+        "Explain the key architectural difference between Moshi and cascaded speech models.",
+        "What is the mathematical definition of scaled dot-product attention?",
+        "How does dynamic chunking differ from fixed chunking in sequence models?",
+        "Summarize the Mimi neural audio codec used in Moshi in 1 sentence.",
+    ]
 
-    for i in range(num_samples):
-        print(f"  Sampling request {i + 1}/{num_samples}...")
+    telemetry_records: List[Dict[str, Any]] = []
+
+    for i in range(min(num_samples, len(sample_prompts))):
+        prompt = sample_prompts[i]
+        print(f"[{i + 1}/{num_samples}] Dispatching: '{prompt[:45]}...'")
+
         t0 = time.perf_counter()
-        first_token_t = None
-        collected_tokens = []
-        captured_headers = {}
+        first_token_time: Optional[float] = None
+        collected_chunks: List[str] = []
+        captured_headers: Dict[str, str] = {}
 
         try:
             raw_resp = await client.chat.completions.with_raw_response.create(
-                model=calib_model,
+                model=candidate_model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=60,
+                max_tokens=250,
                 temperature=0.0,
                 stream=True,
             )
 
+            # Extract rate limit headers
             for k, v in raw_resp.headers.items():
                 if k.lower().startswith(("x-ratelimit", "retry-after")):
                     captured_headers[k.lower()] = v
@@ -84,71 +113,56 @@ async def calibrate(num_samples: int = 5):
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
-                    if first_token_t is None:
-                        first_token_t = time.perf_counter()
-                    collected_tokens.append(delta)
+                    if first_token_time is None:
+                        first_token_time = time.perf_counter()
+                    collected_chunks.append(delta)
 
             t_end = time.perf_counter()
-            ttft_ms = (first_token_t - t0) * 1000.0 if first_token_t else None
-            total_ms = (t_end - t0) * 1000.0
-
-            sample_data = {
-                "sample_idx": i + 1,
-                "model": calib_model,
-                "status": 200,
-                "ttft_ms": round(ttft_ms, 2) if ttft_ms else None,
-                "total_ms": round(total_ms, 2),
-                "content_preview": "".join(collected_tokens)[:80],
-                "headers": captured_headers,
-            }
-            samples.append(sample_data)
-            print(
-                f"    -> TTFT: {sample_data['ttft_ms']}ms | Total: {sample_data['total_ms']}ms | Remaining tokens: {captured_headers.get('x-ratelimit-remaining-tokens')}"
+            total_duration_ms = (t_end - t0) * 1000.0
+            ttft_ms = (
+                ((first_token_time - t0) * 1000.0)
+                if first_token_time is not None
+                else total_duration_ms
             )
+            full_text = "".join(collected_chunks)
+
+            record = {
+                "sample_index": i + 1,
+                "model": candidate_model,
+                "prompt": prompt,
+                "first_token_ms": round(ttft_ms, 2),
+                "total_duration_ms": round(total_duration_ms, 2),
+                "words_generated": len(full_text.split()),
+                "rate_headers": captured_headers,
+                "response_preview": full_text[:120],
+            }
+            telemetry_records.append(record)
+            print(f"    -> TTFT: {ttft_ms:.1f}ms | Total: {total_duration_ms:.1f}ms")
 
         except groq.RateLimitError as rle:
-            t_end = time.perf_counter()
-            sample_data = {
-                "sample_idx": i + 1,
-                "model": calib_model,
-                "status": 429,
-                "error": str(rle),
-                "total_ms": round((t_end - t0) * 1000.0, 2),
-            }
-            samples.append(sample_data)
-            print(f"    -> Rate limited (429): {rle}")
+            print(f"    -> [429 RATE LIMIT]: {rle}")
+            telemetry_records.append({"sample_index": i + 1, "error": "429 RateLimitError"})
+        except Exception as exc:
+            print(f"    -> [ERROR]: {exc}")
+            telemetry_records.append({"sample_index": i + 1, "error": str(exc)})
 
-        except Exception as err:
-            t_end = time.perf_counter()
-            sample_data = {
-                "sample_idx": i + 1,
-                "model": calib_model,
-                "status": "error",
-                "error": str(err),
-                "total_ms": round((t_end - t0) * 1000.0, 2),
-            }
-            samples.append(sample_data)
-            print(f"    -> Error: {err}")
+        # Conservative pause between requests to preserve sliding TPM window
+        await asyncio.sleep(2.0)
 
-        # Sleep between requests to protect quota
-        if i < num_samples - 1:
-            await asyncio.sleep(2.0)
-
-    # Save summary report
-    report_file = out_dir / "real_groq_telemetry.json"
-    with open(report_file, "w", encoding="utf-8") as f:
+    # Save telemetry file
+    out_file = out_dir / "real_groq_telemetry.json"
+    with open(out_file, "w", encoding="utf-8") as f:
         json.dump(
             {
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "available_models": available_models,
-                "tested_model": calib_model,
-                "samples": samples,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime()),
+                "model_calibrated": candidate_model,
+                "num_samples": len(telemetry_records),
+                "records": telemetry_records,
             },
             f,
             indent=2,
         )
-
-    print(f"\nCalibration complete. Telemetry saved to {report_file}")
+    print(f"\nSaved calibration telemetry to {out_file}")
 
 
 if __name__ == "__main__":
