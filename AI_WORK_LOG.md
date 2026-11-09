@@ -21,3 +21,15 @@
 ### 3. Decisions Overruled / Modified
 - *Initial Proposal:* Stream answer tokens to optimize user-visible TTFT.
 - *Overruled by Design:* Buffered output selected to ensure every claim is checked by the `VERIFY` step before user exposure.
+
+## Milestone 2 & 3: Pipeline Core & Stand-in Service (2026-11-09)
+- **Implemented:**
+  - `src/relay/budget.py`: Sliding window TPM/RPM tracking and daily token/request ceilings.
+  - `src/relay/queue.py`: Concurrency limiting (max 3), queue backlog rejection (depth 50), and deadline monitoring.
+  - `src/relay/groq_client.py`: AsyncGroq wrapper with application-level exponential backoff + jitter and rate-limit header extraction.
+  - `src/relay/pipeline.py`: Complete 4-step pipeline (CLASSIFY -> branch -> RETRIEVE -> DRAFT -> VERIFY -> bounded revision loop -> release answer).
+  - `src/relay_standin/server.py`: Stand-in FastAPI service simulating Groq API with configurable TTFT, streaming chunks, slowdown under load, and rate limit injection.
+- **Verification:**
+  - 21 unit & integration tests passing in `tests/`.
+  - All code formatted and clean under Ruff.
+  - Local commit `803c824` created.

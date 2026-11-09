@@ -4,13 +4,13 @@
 
 | ID | Description | Source | Status | Verification Plan |
 |---|---|---|---|---|
-| **REQ-P1** | Pipeline in Python (pinned interpreter 3.13) | Brief p1 | In Progress | Automated environment check in CI |
-| **REQ-P2** | Minimum 4 explicit pipeline steps | Brief p1 | Planned | `tests/test_pipeline.py`: trace step count >= 4 |
-| **REQ-P3** | Real hosted model calls (Groq free tier) | Brief p1 | Planned | Calibration script against real endpoint |
-| **REQ-P4** | Retrieval tool call (BM25 baseline) | Brief p1 | Planned | Unit test verifying tool execution in trace |
-| **REQ-P5** | Branch or bounded loop | Brief p1 | Planned | Branch test (refusal) & loop test (verify-retry) |
-| **REQ-P6** | Answers cite paper section/page | Brief p1 | Planned | Citation syntax regex + verification step |
-| **REQ-P7** | Refusal on unanswerable questions | Brief p1 | Planned | Evaluation on negative question set |
+| **REQ-P1** | Pipeline in Python (pinned interpreter 3.13) | Brief p1 | Completed | Automated environment check in CI |
+| **REQ-P2** | Minimum 4 explicit pipeline steps | Brief p1 | Completed | `tests/test_pipeline.py`: trace step count >= 4 |
+| **REQ-P3** | Real hosted model calls (Groq free tier) | Brief p1 | Ready to Calibrate | Calibration script against real endpoint |
+| **REQ-P4** | Retrieval tool call (BM25 baseline) | Brief p1 | Completed | Unit test verifying tool execution in trace |
+| **REQ-P5** | Branch or bounded loop | Brief p1 | Completed | Branch test (refusal) & loop test (verify-retry) |
+| **REQ-P6** | Answers cite paper section/page | Brief p1 | Completed | Citation syntax regex + verification step |
+| **REQ-P7** | Refusal on unanswerable questions | Brief p1 | Completed | Evaluation on negative question set |
 | **REQ-P8** | Restricted library: exactly 3 arXiv papers | Brief p1 | Completed | Chunks extracted only from specified PDFs |
 
 ## 2. Library Document Specification
