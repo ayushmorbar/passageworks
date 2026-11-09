@@ -215,21 +215,23 @@ Expose programmatic interruption sensitivity thresholds. In noisy call-center en
 
 ## How I worked with the assistant
 
-The complete interaction was conducted through an iterative pair-programming workflow, maintaining engineering rigor and validating every step against the assignment brief.
+The complete pair-programming trajectory is preserved unedited in `transcripts/conversation_history.jsonl` (1,500+ interaction steps across requirements analysis, live Groq calibration, Stand-in implementation, and load benchmark execution).
 
-### The Three Prompts That Mattered Most
+### The Three Prompts That Helped Me Most
 1. *"Calibrate against live Groq headers first to parameterize the stand-in with empirical data rather than guesses. Do not run large unmetered load tests against real Groq; calibrate on 5 samples and test load on the stand-in."*  
-   This prompt established empirical grounding, ensuring our stand-in parameters (210ms TTFT, 3ms token interval, 8,000 TPM) matched live provider behavior.
+   This prompt anchored the entire simulation in empirical reality, capturing Groq's sub-second token replenishment (210–630ms) and actual 8,000 TPM limit before generating synthetic load.
 2. *"Define whether output is buffered or streamed. Do not release unverified claims merely to improve first-token metrics."*  
-   This framed our core safety decision: buffering output until claim verification passed, prioritizing factual accuracy over artificial latency numbers.
-3. *"Ensure all configuration is resolved via standard library dataclasses with os.getenv. No hardcoded URLs, models, or magic numbers, and keep working notes in .tmp out of the git tree."*  
-   This transformed the codebase into a clean, configurable, production-grade repository.
+   This enforced our core safety invariant: claim verification must execute to completion before any user-visible token is emitted, preventing hallucinations from leaking to users.
+3. *"Ensure all configuration is resolved via standard library dataclasses with os.getenv. No hardcoding, deduplication, atomic modularity, and standardize naming to Passageworks across all modules."*  
+   This forced the codebase into a clean, decoupled architecture where timeouts, quotas, and endpoints are externally controllable without code modifications.
 
-### One Thing It Got Wrong That I Caught and Fixed
-During the daily exhaustion load test, the stand-in returned `HTTP 429` with `retry-after: 3600` (1-hour lockout). The assistant's initial retry handler parsed this header and executed `await asyncio.sleep(3600)`, causing the load runner to hang for an hour. I caught the hang through task inspection, killed the process, and added a fast-fail threshold: any lockout exceeding 10 seconds terminates immediately rather than sleeping.
+### The Three Prompts That Sent Me Down the Wrong Path
+1. *Allowing standard HTTP retry handling without specifying a fast-fail ceiling:*  
+   When instructed to respect provider 429 headers, the assistant implemented `await asyncio.sleep(retry_after)`. When the Stand-in simulated daily quota exhaustion with `retry-after: 3600`, the harness slept for an hour. I had to terminate the process and mandate an explicit fast-fail threshold (`>10s`).
+2. *Proposing semantic embedding models before measuring the corpus:*  
+   An early prompt exploring retrieval options led the assistant to recommend `sentence-transformers` and a vector store. This added multi-gigabyte dependencies and embedding overhead. I overruled this in favor of a lean, zero-dependency BM25 index that executes in $<2\text{ms}$ with zero network cost across our 337 chunks.
+3. *Relying on high-level SDK calls without auditing internal retries:*  
+   Initial client prompts didn't explicitly disable SDK retries. The Groq client's hidden retries multiplied our application-level retries under burst load, creating double-backoff stalls. I had to force `max_retries=0` in the underlying client to keep retry timing visible and controllable.
 
-### One Decision Where I Overruled It
-The assistant initially proposed installing sentence-transformer embedding models and a vector database. I overruled this in favor of a lean, zero-dependency BM25 index with exact section and page metadata. This avoided heavy dependencies, cut retrieval latency to sub-2ms, and eliminated embedding generation costs while achieving 100% precision on paper citations.
-
-### What in This Submission Is Distinctly Mine
-The decision to enforce buffered verification over unverified streaming, the fast-fail retry policy on long lockouts, and the empirical measurement of Groq's sub-second token replenishment window. These choices reflect a focus on honest measurements, evidence integrity, and system resilience under load.
+### What This Taught Me About Steering an AI Through an Open-Ended Systems Problem
+AI assistants are exceptionally effective at rapid synthesis, test authoring, and mechanical refactoring, but they naturally default to common textbook patterns (like heavy vector databases or naive retry loops) that fail under tight systems constraints. Navigating an open-ended systems problem requires the engineer to act as an unyielding boundary enforcer: establishing monotonic clocks, asserting strict failure thresholds, interrogating silent assumptions, and refusing superficial metric wins (like unverified streaming) in favor of provable system guarantees.
