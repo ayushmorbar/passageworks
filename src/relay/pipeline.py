@@ -136,9 +136,33 @@ class PassageworksPipeline:
                     duration_ms=step1_ms,
                     tokens_in=classify_resp.prompt_tokens,
                     tokens_out=classify_resp.completion_tokens,
-                    details={"raw": classify_resp.content},
+                    details={"raw": classify_resp.content, "error": classify_resp.error_message},
                 )
             )
+
+            if classify_resp.error_message:
+                total_ms = (time.perf_counter() - overall_start) * 1000.0
+                is_rl = any(
+                    term in classify_resp.error_message.lower()
+                    for term in ["rate", "429", "quota", "exhausted", "limit"]
+                )
+                return PipelineResult(
+                    request_id=request_id,
+                    question=question,
+                    status="rate_limited" if is_rl else "error",
+                    answer=f"Service unavailable: {classify_resp.error_message}",
+                    is_refusal=True,
+                    citations=[],
+                    retrieved_chunks=[],
+                    steps=steps,
+                    first_token_ms=None,
+                    total_ms=total_ms,
+                    retries=total_retries,
+                    tokens_in=total_p_tokens,
+                    tokens_out=total_c_tokens,
+                    retrieval_setting=retrieval_setting,
+                    answer_grade="refused_correctly" if is_rl else "wrong",
+                )
 
             decision = parse_classification_response(classify_resp.content)
             if not decision.is_in_scope:
@@ -229,9 +253,33 @@ class PassageworksPipeline:
                     duration_ms=step3_ms,
                     tokens_in=draft_resp.prompt_tokens,
                     tokens_out=draft_resp.completion_tokens,
-                    details={"text": draft_resp.content},
+                    details={"text": draft_resp.content, "error": draft_resp.error_message},
                 )
             )
+
+            if draft_resp.error_message:
+                total_ms = (time.perf_counter() - overall_start) * 1000.0
+                is_rl = any(
+                    term in draft_resp.error_message.lower()
+                    for term in ["rate", "429", "quota", "exhausted", "limit"]
+                )
+                return PipelineResult(
+                    request_id=request_id,
+                    question=question,
+                    status="rate_limited" if is_rl else "error",
+                    answer=f"Drafting failed: {draft_resp.error_message}",
+                    is_refusal=True,
+                    citations=[],
+                    retrieved_chunks=retrieved_chunks,
+                    steps=steps,
+                    first_token_ms=None,
+                    total_ms=total_ms,
+                    retries=total_retries,
+                    tokens_in=total_p_tokens,
+                    tokens_out=total_c_tokens,
+                    retrieval_setting=retrieval_setting,
+                    answer_grade="wrong",
+                )
 
             current_answer = draft_resp.content
             citations = extract_citations(current_answer)
@@ -260,6 +308,30 @@ class PassageworksPipeline:
                 total_retries += verify_resp.retries_used
                 total_p_tokens += verify_resp.prompt_tokens
                 total_c_tokens += verify_resp.completion_tokens
+
+                if verify_resp.error_message:
+                    total_ms = (time.perf_counter() - overall_start) * 1000.0
+                    is_rl = any(
+                        term in verify_resp.error_message.lower()
+                        for term in ["rate", "429", "quota", "exhausted", "limit"]
+                    )
+                    return PipelineResult(
+                        request_id=request_id,
+                        question=question,
+                        status="rate_limited" if is_rl else "error",
+                        answer=f"Verification failed: {verify_resp.error_message}",
+                        is_refusal=True,
+                        citations=[],
+                        retrieved_chunks=retrieved_chunks,
+                        steps=steps,
+                        first_token_ms=None,
+                        total_ms=total_ms,
+                        retries=total_retries,
+                        tokens_in=total_p_tokens,
+                        tokens_out=total_c_tokens,
+                        retrieval_setting=retrieval_setting,
+                        answer_grade="wrong",
+                    )
 
                 outcome = parse_verification_response(verify_resp.content, citations)
                 steps.append(
@@ -310,9 +382,37 @@ class PassageworksPipeline:
                             duration_ms=redraft_ms,
                             tokens_in=revised_resp.prompt_tokens,
                             tokens_out=revised_resp.completion_tokens,
-                            details={"revised_text": revised_resp.content},
+                            details={
+                                "revised_text": revised_resp.content,
+                                "error": revised_resp.error_message,
+                            },
                         )
                     )
+
+                    if revised_resp.error_message:
+                        total_ms = (time.perf_counter() - overall_start) * 1000.0
+                        is_rl = any(
+                            term in revised_resp.error_message.lower()
+                            for term in ["rate", "429", "quota", "exhausted", "limit"]
+                        )
+                        return PipelineResult(
+                            request_id=request_id,
+                            question=question,
+                            status="rate_limited" if is_rl else "error",
+                            answer=f"Revision failed: {revised_resp.error_message}",
+                            is_refusal=True,
+                            citations=[],
+                            retrieved_chunks=retrieved_chunks,
+                            steps=steps,
+                            first_token_ms=None,
+                            total_ms=total_ms,
+                            retries=total_retries,
+                            tokens_in=total_p_tokens,
+                            tokens_out=total_c_tokens,
+                            retrieval_setting=retrieval_setting,
+                            answer_grade="wrong",
+                        )
+
                     current_answer = revised_resp.content
                     citations = extract_citations(current_answer)
 

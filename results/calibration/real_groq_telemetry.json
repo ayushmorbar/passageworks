@@ -1,0 +1,99 @@
+{
+  "timestamp": "2026-11-09T09:12:46Z",
+  "available_models": [
+    "meta-llama/llama-prompt-guard-2-22m",
+    "meta-llama/llama-prompt-guard-2-86m",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "allam-2-7b",
+    "whisper-large-v3",
+    "canopylabs/orpheus-v1-english",
+    "qwen/qwen3.8-27b",
+    "canopylabs/orpheus-arabic-saudi",
+    "whisper-large-v3-turbo",
+    "openai/gpt-oss-safeguard-20b"
+  ],
+  "tested_model": "qwen/qwen3.8-27b",
+  "samples": [
+    {
+      "sample_idx": 1,
+      "model": "qwen/qwen3.8-27b",
+      "status": 200,
+      "ttft_ms": 232.9,
+      "total_ms": 247.91,
+      "content_preview": "Multi-head attention allows the model to jointly attend to information from diff",
+      "headers": {
+        "x-ratelimit-limit-requests": "1000",
+        "x-ratelimit-limit-tokens": "8000",
+        "x-ratelimit-remaining-requests": "998",
+        "x-ratelimit-remaining-tokens": "7916",
+        "x-ratelimit-reset-requests": "2m52.8s",
+        "x-ratelimit-reset-tokens": "630ms"
+      }
+    },
+    {
+      "sample_idx": 2,
+      "model": "qwen/qwen3.8-27b",
+      "status": 200,
+      "ttft_ms": 173.31,
+      "total_ms": 237.49,
+      "content_preview": "Multi-head attention allows the model to jointly attend to information from diff",
+      "headers": {
+        "x-ratelimit-limit-requests": "1000",
+        "x-ratelimit-limit-tokens": "8000",
+        "x-ratelimit-remaining-requests": "997",
+        "x-ratelimit-remaining-tokens": "7916",
+        "x-ratelimit-reset-requests": "4m19.2s",
+        "x-ratelimit-reset-tokens": "630ms"
+      }
+    },
+    {
+      "sample_idx": 3,
+      "model": "qwen/qwen3.8-27b",
+      "status": 200,
+      "ttft_ms": 178.5,
+      "total_ms": 255.04,
+      "content_preview": "Multi-head attention allows the model to jointly attend to information from diff",
+      "headers": {
+        "x-ratelimit-limit-requests": "1000",
+        "x-ratelimit-limit-tokens": "8000",
+        "x-ratelimit-remaining-requests": "996",
+        "x-ratelimit-remaining-tokens": "7972",
+        "x-ratelimit-reset-requests": "5m45.6s",
+        "x-ratelimit-reset-tokens": "210ms"
+      }
+    },
+    {
+      "sample_idx": 4,
+      "model": "qwen/qwen3.8-27b",
+      "status": 200,
+      "ttft_ms": 300.46,
+      "total_ms": 336.76,
+      "content_preview": "Multi-head attention allows the model to jointly attend to information from diff",
+      "headers": {
+        "x-ratelimit-limit-requests": "1000",
+        "x-ratelimit-limit-tokens": "8000",
+        "x-ratelimit-remaining-requests": "995",
+        "x-ratelimit-remaining-tokens": "7943",
+        "x-ratelimit-reset-requests": "7m12s",
+        "x-ratelimit-reset-tokens": "427ms"
+      }
+    },
+    {
+      "sample_idx": 5,
+      "model": "qwen/qwen3.8-27b",
+      "status": 200,
+      "ttft_ms": 747.74,
+      "total_ms": 763.6,
+      "content_preview": "Multi-head attention allows the model to jointly attend to information from diff",
+      "headers": {
+        "x-ratelimit-limit-requests": "1000",
+        "x-ratelimit-limit-tokens": "8000",
+        "x-ratelimit-remaining-requests": "994",
+        "x-ratelimit-remaining-tokens": "7943",
+        "x-ratelimit-reset-requests": "8m38.4s",
+        "x-ratelimit-reset-tokens": "427ms"
+      }
+    }
+  ]
+}

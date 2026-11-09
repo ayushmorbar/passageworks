@@ -50,10 +50,10 @@ async def calibrate(num_samples: int = 5):
         print(f"[WARN] Could not fetch models list: {exc}")
         available_models = []
 
-    # Choose primary test model: prefer llama-3.1-8b-instant for calibration to conserve daily quota
-    calib_model = "llama-3.1-8b-instant"
-    if calib_model not in available_models and available_models:
-        calib_model = available_models[0]
+    # Qwen 3.8 27B is direct chat completion without internal reasoning preamble
+    calib_model = (
+        "qwen/qwen3.8-27b" if "qwen/qwen3.8-27b" in available_models else "openai/gpt-oss-20b"
+    )
 
     print(f"\nStep 2: Sending {num_samples} sample calibration requests to '{calib_model}'...")
     samples: List[Dict[str, Any]] = []
@@ -80,7 +80,7 @@ async def calibrate(num_samples: int = 5):
                 if k.lower().startswith(("x-ratelimit", "retry-after")):
                     captured_headers[k.lower()] = v
 
-            stream = raw_resp.parse()
+            stream = await raw_resp.parse()
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:

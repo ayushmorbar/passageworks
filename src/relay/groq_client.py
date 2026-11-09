@@ -83,7 +83,7 @@ class GroqClientWrapper:
                     if k.lower().startswith(("x-ratelimit", "retry-after")):
                         response_headers[k.lower()] = v
 
-                stream = raw_stream_resp.parse()
+                stream = await raw_stream_resp.parse()
                 async for chunk in stream:
                     delta = chunk.choices[0].delta.content if chunk.choices else None
                     if delta:
@@ -133,9 +133,14 @@ class GroqClientWrapper:
                     ra_hdr = rle.response.headers.get("retry-after")
                     if ra_hdr:
                         try:
-                            retry_after_s = max(float(ra_hdr), retry_after_s)
+                            hdr_val = float(ra_hdr)
+                            if hdr_val > 10.0:
+                                # Long lockout (e.g. daily quota exhaustion); do not block, fail immediately
+                                break
+                            retry_after_s = max(hdr_val, retry_after_s)
                         except ValueError:
                             pass
+                retry_after_s = min(retry_after_s, 5.0)
                 # Add jitter
                 jitter = random.uniform(0.1, 0.5)
                 await asyncio.sleep(retry_after_s + jitter)

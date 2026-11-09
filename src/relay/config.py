@@ -7,9 +7,9 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class PipelineConfig:
-    # Model selections
-    primary_model: str = os.getenv("RELAY_PRIMARY_MODEL", "llama-3.3-70b-versatile")
-    classifier_model: str = os.getenv("RELAY_CLASSIFIER_MODEL", "llama-3.1-8b-instant")
+    # Model selections (calibrated from live Groq account November 2026)
+    primary_model: str = os.getenv("RELAY_PRIMARY_MODEL", "qwen/qwen3.8-27b")
+    classifier_model: str = os.getenv("RELAY_CLASSIFIER_MODEL", "qwen/qwen3.8-27b")
 
     # Timeouts and deadlines
     llm_timeout_seconds: float = 15.0
@@ -23,9 +23,9 @@ class PipelineConfig:
     max_concurrent_requests: int = 3
     max_queue_depth: int = 50
 
-    # Token budget constraints (Groq Free Tier limits)
-    daily_token_budget: int = 95_000  # Conservative safety ceiling under 100k
-    tpm_token_budget: int = 5_500  # Conservative ceiling under ~6k TPM
+    # Token budget constraints (Groq Free Tier measured limits)
+    daily_token_budget: int = 450_000  # Conservative safety ceiling under 500k TPD
+    tpm_token_budget: int = 7_500  # Conservative ceiling under measured 8,000 TPM
 
     # Corpus paths
     papers_dir: Path = Path("papers")

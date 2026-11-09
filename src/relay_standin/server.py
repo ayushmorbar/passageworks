@@ -43,14 +43,24 @@ def purge_rate_windows(now: float) -> None:
 def generate_mock_reply(messages: List[Dict[str, Any]]) -> str:
     """Generate realistic responses based on prompt markers (CLASSIFY, DRAFT, VERIFY)."""
     full_prompt = " ".join(str(m.get("content", "")) for m in messages)
+    user_query = str(messages[-1].get("content", "")).lower() if messages else ""
 
     # 1. Classification prompts
     if "scope gatekeeper for Passageworks" in full_prompt or "is_in_scope" in full_prompt:
-        # Check if negative/out-of-scope query
-        if any(
-            term in full_prompt.lower()
-            for term in ["cooking", "recipe", "french revolution", "mamba", "quantum", "weather"]
-        ):
+        # Check if negative/out-of-scope query based strictly on the user query
+        negative_triggers = [
+            "cooking",
+            "recipe",
+            "french revolution",
+            "mamba",
+            "quantum",
+            "weather",
+            "imagenet",
+            "russian",
+            "apple m3",
+            "rlhf",
+        ]
+        if any(term in user_query for term in negative_triggers):
             return json.dumps(
                 {
                     "is_in_scope": False,
@@ -58,10 +68,9 @@ def generate_mock_reply(messages: List[Dict[str, Any]]) -> str:
                     "reason": "Topic is not covered in the three allowed papers.",
                 }
             )
-        if (
-            "transformer" in full_prompt.lower()
-            or "attention" in full_prompt.lower()
-            or "encoder" in full_prompt.lower()
+        if any(
+            term in user_query
+            for term in ["transformer", "attention", "encoder", "decoder", "bleu", "positional"]
         ):
             return json.dumps(
                 {
@@ -70,11 +79,9 @@ def generate_mock_reply(messages: List[Dict[str, Any]]) -> str:
                     "reason": "Question pertains to Attention Is All You Need.",
                 }
             )
-        if (
-            "moshi" in full_prompt.lower()
-            or "dialogue" in full_prompt.lower()
-            or "speech" in full_prompt.lower()
-            or "mimi" in full_prompt.lower()
+        if any(
+            term in user_query
+            for term in ["moshi", "dialogue", "speech", "mimi", "audio", "full-duplex"]
         ):
             return json.dumps(
                 {
@@ -83,11 +90,19 @@ def generate_mock_reply(messages: List[Dict[str, Any]]) -> str:
                     "reason": "Question pertains to Moshi foundation model.",
                 }
             )
+        if any(term in user_query for term in ["chunking", "dynamic", "hierarchical", "boundary"]):
+            return json.dumps(
+                {
+                    "is_in_scope": True,
+                    "relevant_paper": "dynamic_chunking",
+                    "reason": "Question pertains to dynamic chunking.",
+                }
+            )
         return json.dumps(
             {
                 "is_in_scope": True,
-                "relevant_paper": "dynamic_chunking",
-                "reason": "Question pertains to dynamic chunking.",
+                "relevant_paper": "attention",
+                "reason": "Question relevant to library papers.",
             }
         )
 
@@ -134,6 +149,9 @@ def generate_mock_reply(messages: List[Dict[str, Any]]) -> str:
 
 
 @app.post("/v1/chat/completions")
+@app.post("/v1/openai/v1/chat/completions")
+@app.post("/openai/v1/chat/completions")
+@app.post("/chat/completions")
 async def chat_completions(req: ChatCompletionRequest):
     global active_in_flight_requests, daily_request_count, daily_token_count
     now = time.perf_counter()
@@ -316,13 +334,14 @@ async def chat_completions(req: ChatCompletionRequest):
 
 @app.post("/control/reset")
 async def reset_control():
-    """Reset all state counters for clean scenario execution."""
-    global active_in_flight_requests, daily_request_count, daily_token_count
+    """Reset all state counters and restore default config for clean scenario execution."""
+    global active_in_flight_requests, daily_request_count, daily_token_count, config
     active_in_flight_requests = 0
     daily_request_count = 0
     daily_token_count = 0
     request_window.clear()
     token_window.clear()
+    config = StandinConfig()
     return {"status": "reset", "active": 0}
 
 
