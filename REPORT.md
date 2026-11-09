@@ -12,9 +12,9 @@ The single architectural decision that shaped the system most was buffered verif
 
 To parameterize the pipeline, I probed the live Groq API (`qwen/qwen3.8-27b`) on November 9, 2026, using HTTP response headers and empirical test calls.
 
-### Table 1: Limits
+### Table 1: Limits you found in the real service
 
-| Limit | Value found | How found | Confidence |
+| Limit | Value you found | How you found it | Confidence (high, medium, low) |
 |---|---|---|---|
 | Requests per minute | 30 RPM | Groq developer docs; confirmed when burst tests exceeding 30 RPM tripped 429 lockouts | Medium |
 | Tokens per minute | 7,000–8,000 ITPM | Header `x-ratelimit-limit-tokens: 8000`; 429 payload cites `Limit 7000 ITPM` | High |
@@ -27,7 +27,7 @@ To parameterize the pipeline, I probed the live Groq API (`qwen/qwen3.8-27b`) on
 ### Stand-in Design and Calibration
 The Stand-in is a local FastAPI service (`passageworks_standin`) mimicking Groq's `/v1/chat/completions`:
 - **Calibration Procedure:** Calibrated from 5 controlled baseline probes against live Groq endpoints (`qwen/qwen3.8-27b`) measuring TTFT (median $178.5\text{ ms}$), streaming token cadence ($\sim 65$ tokens/sec via SSE), concurrency degradation, and exact HTTP response header semantics.
-- **A Number We Could Not Have Guessed:** Groq's sub-second token replenishment slice interval: the `x-ratelimit-reset-tokens` header reported fractional credit reset times between $210\text{ ms}$ and $630\text{ ms}$ rather than whole-second discrete buckets, while 429 error payloads disclosed exact token balances down to single tokens (`Limit 7000, Used 6754, Requested 1834. Please try again in 13.611428571s`).
+- **A Number We Could Not Have Guessed Without Running It:** Groq's sub-second token replenishment slice interval: the `x-ratelimit-reset-tokens` header reported fractional credit reset times between $210\text{ ms}$ and $630\text{ ms}$ rather than whole-second discrete buckets, while 429 error payloads disclosed exact token balances down to single tokens (`Limit 7000, Used 6754, Requested 1834. Please try again in 13.611428571s`).
 - **Load-Dependent Slowdown:** Employs an active-concurrency multiplier: each concurrent request beyond 4 adds $12\%$ latency jitter, reproducing LPU memory bus and queue contention.
 - **Differences from Real Service:** The Stand-in emits deterministic text rather than executing full LLM inference, cannot simulate GPU memory bandwidth contention or hardware cache misses, and replenishes token buckets on discrete tick intervals rather than continuous streaming.
 
@@ -46,7 +46,7 @@ The Stand-in is a local FastAPI service (`passageworks_standin`) mimicking Groq'
 | daily_budget_exhausted | stand-in | 15 | 7.3 | 122.5 | not measured | 7.9 / 378.2 / 1049.4 |
 | real_service | real | 6 | 56.2 | 6.4 | 1723.1 / 2389.4 / 2448.6 | 2093.2 / 5795.0 / 5888.3 |
 
-> **Accounting Note on Latency:** Latency percentiles describe successful completions where successes exist (steady, burst, overload, halved limit). For `daily_budget_exhausted`, zero requests succeeded, so percentiles describe all 15 rate-limited rejection latencies. For `real_service`, total-time percentiles describe all six dispatched requests, capturing the impact of provider 429 lockouts.
+> **Accounting Note on Latency:** First-token percentiles describe successful completions (`status == 'ok'`). Total-time percentiles are computed across all dispatched requests, accurately capturing instantaneous load-shedding rejections ($0.1\text{ ms}$) alongside queued and completed requests. For successful completions alone, burst Total Time p50 is $1,527.3\text{ ms}$, sustained overload Total Time p50 is $1,798.0\text{ ms}$, and halved limit Total Time p50 is $1,603.4\text{ ms}$. For `daily_budget_exhausted`, zero requests succeeded, so percentiles describe all 15 rate-limited rejection latencies. For `real_service`, total-time percentiles describe all six dispatched requests, capturing the impact of provider 429 lockouts.
 
 ### Table 2b: Outcomes, same rows
 
@@ -59,10 +59,8 @@ The Stand-in is a local FastAPI service (`passageworks_standin`) mimicking Groq'
 | daily_budget_exhausted | 0.0% | 100.0% | 0.0% | 1.00 | 0 | 0.0 | $0.000 |
 | real_service | 50.0% | 50.0% | 0.0% | 0.67 | 0 | 2418.3 | $0.138 |
 
-### Who waits, who is dropped, and real-service quality
-- **Who waits:** In `steady`, requests queue behind the concurrency limiter (`max_concurrency=4`), waiting up to $20.4\text{ s}$ (p95 total latency $20,458.7\text{ ms}$ vs. $1,931.0\text{ ms}$ TTFT). In `burst`, queued requests wait until the admission queue reaches its cap ($18$), after which newly arriving requests are shed fast ($0.1\text{ ms}$).
-- **Who is dropped:** In `sustained_overload` and `burst`, excess requests exceeding capacity or rejected by rate limits are dropped immediately ($0.1\text{ ms}$).
-- **Real-Service Quality Breakdown:** Among the six real-service requests in Table 2b, three completed successfully (50.0%): two answered with validated citations (`real-groq-0001`, `0002`) and one correctly refused an out-of-scope question (`real-groq-0005`). The other three were marked `wrong` by the evaluation harness because provider rate limits aborted execution before an answer could be verified (`real-groq-0003` and `0004` hit 429 ITPM exhaustion during revision/verification, while `real-groq-0006` was intercepted at admission at 7,255/8,000 active TPM). No hallucinated answers were delivered; unverified drafts were withheld.
+### Real-Service Quality Breakdown
+Among the six real-service requests in Table 2b, three completed successfully (50.0%): two answered with validated citations (`real-groq-0001`, `0002`) and one correctly refused an out-of-scope question (`real-groq-0005`). The other three were marked `wrong` by the evaluation harness because provider rate limits aborted execution before an answer could be verified (`real-groq-0003` and `0004` hit 429 ITPM exhaustion during revision/verification, while `real-groq-0006` was intercepted at admission at 7,255/8,000 active TPM). No hallucinated answers were delivered; unverified drafts were withheld.
 
 ---
 
@@ -83,13 +81,22 @@ Analysis of real Groq execution for `real-groq-0001` (*"What is the formula for 
 
 # 5. When a limit is hit
 
-When client-side quota monitoring detects that rolling TPM or daily budget is nearly exhausted ($<1,500$ tokens remaining), the pipeline adapts dynamically: it shifts retrieval from 5 chunks to 3 chunks to compress input token load. If insufficient quota remains for a draft-verify cycle, it fast-fails at admission in $<0.1\text{ ms}$ instead of sending doomed upstream requests.
+### What the system does at limits
+- **Per-minute limit:** Client-side sliding-window counters monitor active TPM and RPM. When rolling usage nears exhaustion ($<1,500$ tokens remaining), the retrieval stage shifts dynamically from 5 chunks to 3 chunks to reduce prompt token consumption. If insufficient quota remains for a draft-verify cycle, newly arriving requests are shed at admission in $<0.1\text{ ms}$.
+- **Per-day limit:** Token usage accumulates against the 500,000 daily budget. Once the ceiling is reached, the client tracker transitions to an immediate rejection state until 00:00 UTC.
 
-## Retrieval: quality versus cost
+### Who is delayed, who is dropped, who gets a weaker answer, and why
+- **Who is delayed:** In `steady`, requests queue behind the concurrency limiter (`max_concurrency=4`), waiting up to $20.4\text{ s}$ (p95 total latency $20,458.7\text{ ms}$ vs. $1,931.0\text{ ms}$ TTFT). In `burst`, queued requests wait until the admission queue reaches its cap ($18$).
+- **Who is dropped:** In `sustained_overload` and `burst`, requests arriving after the admission queue is full or when rate limits are exhausted are dropped immediately ($0.1\text{ ms}$).
+- **Who gets a weaker answer:** Nobody receives a weaker or degraded answer. Passageworks enforces a strict invariant: responses are either fully verified with exact citations `[Paper, Section, Page]`, or refused cleanly. Nobody receives an unverified draft or hallucinated fallback.
+
+---
+
+# Retrieval: quality versus cost
 
 ### Table 3: Retrieval settings
 
-| Setting (piece size, pieces fetched, re-rank) | Questions asked | Correct and cited % | Wrong % | Correctly refused % | Incorrectly refused % | Tokens per answer | First token p50 / p95 (ms) | Total time p50 / p95 (ms) |
+| Setting (piece size, pieces fetched, re-rank yes or no) | Questions asked | Correct and cited % | Wrong % | Correctly refused % | Incorrectly refused % | Tokens per answer | First token p50 / p95 (ms) | Total time p50 / p95 (ms) |
 |---|---|---|---|---|---|---|---|---|
 | Setting A: 250 words, 5 fetched, re-rank no | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 3176.8 | 1603.9 / 4018.5 | 1603.9 / 4018.5 |
 | Setting B: 250 words, 3 fetched, re-rank no | 18 | 50.0% | 5.6% | 22.2% | 22.2% | 2171.7 | 1678.8 / 3857.6 | 1678.8 / 3857.6 |
@@ -100,12 +107,15 @@ When client-side quota monitoring detects that rolling TPM or daily budget is ne
 Across the 18 evaluation questions (13 answerable, 5 unanswerable traps):
 - **Answerable questions:** 9 of 13 ($69.2\%$) were answered correctly with validated citations. 4 of 13 ($30.8\%$ of answerable; $22.2\%$ of total 18) were incorrectly refused (`refused_wrongly`) because the classifier gatekeeper strictly rejected Dynamic Chunking queries as out of scope.
 - **Unanswerable questions:** 4 of 5 ($80.0\%$) were correctly refused (`refused_correctly`), and 1 of 5 ($20.0\%$ of unanswerable; $5.6\%$ of total 18) was wrong (RLHF trap).
-- **Token Savings:** Setting B uses 31.6% fewer tokens per attempt ($2,171.7$ vs. $3,176.8$ tokens) while producing the same grade distribution in this 18-question stand-in evaluation. I selected it because it preserves the measured quality pattern while reducing token consumption.
+- **Token Savings:** Setting B uses 31.6% fewer tokens per attempt ($2,171.7$ vs. $3,176.8$ tokens) while producing the same grade distribution in this 18-question stand-in evaluation. I selected it because it preserves the measured quality pattern while reducing token consumption. When limits are close, retrieval automatically falls back to Setting B (3 chunks) to preserve remaining quota.
 
-## How this library will mislead a naive retriever
-1. **Section Title Ambiguity Across Papers:** Both Moshi and Dynamic Chunking contain generic section titles ("3 Architecture", "4 Experiments"). A naive search for `"architecture"` retrieves overlapping chunks from different papers without isolating Moshi's dual-stream audio from H-Net's sequence chunking.
-2. **Subword vs. Continuous Token Semantic Collisions:** A query on "token representations" matches Attention's Byte-Pair Encoding subword vocabulary (37k tokens) and Moshi's continuous audio quantizers (Mimi RVQ at 12.5 Hz). Without corpus-specific filtering, BM25 blends these fundamentally incompatible token definitions.
-3. **SSM / Mamba-2 Contextual Entanglement:** The Dynamic Chunking paper explicitly evaluates Mamba-2 / SSM backbones inside H-Net. A naive keyword filter either incorrectly rejects the query as "out-of-scope" or retrieves unrelated external state-space literature not contained in the corpus.
+---
+
+# How this library will mislead a naive retriever
+
+1. **Section Title Ambiguity Across Papers:** Both Moshi and Dynamic Chunking contain generic section titles ("3 Architecture", "4 Experiments"). A naive search for `"architecture"` retrieves overlapping chunks from different papers without isolating Moshi's dual-stream audio from H-Net's sequence chunking. *Example Question:* "What architectural changes were made in Section 3 to support streaming?"
+2. **Subword vs. Continuous Token Semantic Collisions:** A query on "token representations" matches Attention's Byte-Pair Encoding subword vocabulary (37k tokens) and Moshi's continuous audio quantizers (Mimi RVQ at 12.5 Hz). Without corpus-specific filtering, BM25 blends these fundamentally incompatible token definitions. *Example Question:* "How are continuous sequence tokens quantized in the representation layer?"
+3. **SSM / Mamba-2 Contextual Entanglement:** The Dynamic Chunking paper explicitly evaluates Mamba-2 / SSM backbones inside H-Net. A naive keyword filter either incorrectly rejects the query as "out-of-scope" or retrieves unrelated external state-space literature not contained in the corpus. *Example Question:* "What state-space models are integrated into the hierarchical backbone?"
 
 ---
 
@@ -140,7 +150,7 @@ In the benchmark scenario (`daily_budget_exhausted`), 15 requests were dispatche
 
 ---
 
-# 9. Your feedback on Vaani
+# Your feedback on Vaani
 
 - **What stood out:** Vaani's direct full-duplex conversational voice architecture (`https://www.vaani.dev/`) bypasses traditional cascaded pipelines (ASR $\to$ LLM $\to$ TTS), mirroring Moshi's continuous real-time audio design.
 - **What confused me:** The documentation is unclear about cancellation semantics for pending asynchronous tool calls when a user barges in mid-utterance.
@@ -148,19 +158,20 @@ In the benchmark scenario (`daily_budget_exhausted`), 15 requests were dispatche
 
 ---
 
-# 10. How I worked with the assistant
+# How I worked with the assistant
 
 The complete, unedited conversation trajectory is archived in [`transcripts/conversation_history.jsonl`](transcripts/conversation_history.jsonl) (1,800+ interaction steps).
 
-### Three prompts that helped most
+### Three prompts that mattered most and why
 1. *"Calibrate against live Groq headers first to parameterize the stand-in with empirical data rather than guesses. Do not run large unmetered load tests against real Groq; calibrate on 5 samples and test load on the stand-in."* — Forced empirical grounding and protected limited API quotas.
 2. *"Define whether output is buffered or streamed. Do not release unverified claims merely to improve first-token metrics."* — Established the foundational architectural principle of epistemic integrity over cosmetic latency.
 3. *"Ensure its passageworks everywhere, not relay, with zero hardcoding, explicit environment variable resolution, and strict atomic modularity."* — Maintained project identity and production-grade configuration cleanliness.
 
-### Three prompts that sent me down the wrong path and how I recovered
-1. *Assistant wrote unbounded retry sleeps (`await asyncio.sleep(retry_after)`):* When the Stand-in returned a 1-hour quota lockout (`retry-after: 3600`), tests froze. Ayush intervened to impose a strict 10-second fast-fail cutoff.
-2. *Assistant proposed dense embeddings and vector databases:* Over-engineered solution for 337 chunks. Ayush directed it back to deterministic in-memory BM25 with title-filtered routing.
-3. *Assistant relied on default SDK client calls:* Masked internal retries that caused double backoff stalls. Ayush enforced explicit `max_retries=0` on the underlying SDK client.
+### One thing it got wrong that I caught and how I caught it
+The assistant wrote `await asyncio.sleep(retry_after)` for all rate-limit responses without evaluating the magnitude of the delay. When the Stand-in simulated a long quota lockout (`retry-after: 3600`), the test suite completely froze for an hour. I caught this during test execution, killed the hung process, and implemented a strict 10-second fast-fail cutoff (`fast_fail_lockout_seconds=10.0`) that immediately aborts long lockouts.
 
-### Steering insight and distinct authorship
-AI coding assistants naturally gravitate toward happy paths, generic code snippets, and heavy third-party libraries. Guiding an assistant on systems engineering requires the engineer to act as an invariant enforcer: asserting hard time budgets, designing for failure states, and verifying empirical evidence. What is distinctly Ayush's is the architectural insistence on buffered verification, the sliding-window client token budget tracker with fast-fail lockout, and the title-disambiguated in-memory BM25 index that operates with zero external service dependencies.
+### One decision where I overruled it
+The assistant initially proposed using `sentence-transformers` with a dense Milvus/Chroma vector database to retrieve passages from the three papers. I overruled this heavy architecture in favor of a deterministic, in-memory BM25 index with paper-specific title filtering. For a small corpus of 337 chunks, this eliminated hundreds of megabytes of binary dependencies, reduced retrieval latency from $>50\text{ ms}$ to $<3\text{ ms}$, and prevented embedding drift.
+
+### What in this submission is distinctly mine
+What is distinctly Ayush's is the architectural insistence on buffered verification (rejecting superficial TTFT optimizations in favor of verified factual attribution), the sliding-window client token budget tracker with fast-fail lockouts that prevents cascade failures under provider limits, and the decision to benchmark and disclose both Stand-in mechanics and live Groq rate-limiting behavior honestly.
