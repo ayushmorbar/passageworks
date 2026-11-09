@@ -164,9 +164,9 @@ class GroqClientWrapper:
 
             except groq.RateLimitError as rle:
                 last_error = rle
-                retries_attempted += 1
-                if retries_attempted > self.max_retries:
+                if retries_attempted >= self.max_retries:
                     break
+                retries_attempted += 1
 
                 # Parse retry-after header if present, or exponential backoff
                 retry_after_s = self.backoff_base * (2 ** (retries_attempted - 1))
@@ -188,9 +188,9 @@ class GroqClientWrapper:
 
             except (groq.APIConnectionError, groq.InternalServerError) as net_err:
                 last_error = net_err
-                retries_attempted += 1
-                if retries_attempted > self.max_retries:
+                if retries_attempted >= self.max_retries:
                     break
+                retries_attempted += 1
                 await asyncio.sleep(self.backoff_base * (2 ** (retries_attempted - 1)))
 
             except Exception as unrecoverable:
